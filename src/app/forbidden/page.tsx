@@ -1,0 +1,24 @@
+import Link from "next/link";
+import { ShieldAlert } from "lucide-react";
+import { EmptyState } from "@/components/ui/display";
+import { buttonClass } from "@/components/ui/button";
+import { getT } from "@/lib/session";
+
+export default async function Forbidden() {
+  const t = await getT();
+  return (
+    <main className="mx-auto flex min-h-dvh max-w-lg items-center px-4">
+      <EmptyState
+        className="w-full"
+        icon={<ShieldAlert className="size-5" />}
+        title={t("forbidden.title")}
+        description={t("forbidden.body")}
+        action={
+          <Link href="/" className={buttonClass("primary")}>
+            {t("nav.home")}
+          </Link>
+        }
+      />
+    </main>
+  );
+}
