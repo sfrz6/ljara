@@ -9,6 +9,14 @@ config({ path: ".env.local" });
 config();
 
 async function main() {
+  if (process.env.DEMO_MODE !== "true") {
+    console.error("Refusing to load demo data: DEMO_MODE is not true. Production databases are never seeded.");
+    process.exit(1);
+  }
+  if (process.env.DEMO_MODE !== "true") {
+    console.error("Refusing to load demo data: DEMO_MODE is not true. Production databases are never seeded.");
+    process.exit(1);
+  }
   const force = process.argv.includes("--force");
   const { getDb } = await import("../src/db/client");
   const { resetDatabase, seedDemo } = await import("../src/db/seed");

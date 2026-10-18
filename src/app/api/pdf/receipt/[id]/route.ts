@@ -4,7 +4,7 @@ import { getDb } from "@/db/client";
 import { receipts, payments } from "@/db/schema";
 import { can } from "@/domain/permissions";
 import { receiptHtml } from "@/lib/pdf/documents";
-import { renderPdf } from "@/lib/pdf/render";
+import { documentResponse, renderDocument } from "@/lib/pdf/render";
 import { getSession } from "@/lib/session";
 import { writeAudit } from "@/domain/audit";
 
@@ -38,12 +38,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const url = new URL(req.url);
   const lang = url.searchParams.get("lang") === "en" ? "en" : url.searchParams.get("lang") === "ar" ? "ar" : r.locale;
   const html = receiptHtml({ displayNumber: r.displayNumber, kind: r.kind, status: r.status, amountBaisa: r.amountBaisa, snapshot: r.snapshot, issuedAt: r.issuedAt, voidReason: r.voidReason, relatedNumber }, lang);
-  const pdf = await renderPdf(html);
-  return new NextResponse(new Uint8Array(pdf), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${r.displayNumber}.pdf"`,
-      "Cache-Control": "private, no-store",
-    },
-  });
+  return documentResponse(await renderDocument(html), `${r.displayNumber}.pdf`);
 }

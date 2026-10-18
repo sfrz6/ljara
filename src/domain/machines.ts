@@ -64,35 +64,23 @@ export const unitMachine: Machine<UnitStatus> = {
 
 /* ------------------------- Maintenance (CR-11.2) ------------------------ */
 
-export type MaintenanceStatus =
-  | "submitted"
-  | "seen"
-  | "assigned"
-  | "in_progress"
-  | "completed"
-  | "cost_logged"
-  | "posted";
+export type MaintenanceStatus = "submitted" | "in_progress" | "waiting" | "completed";
 
-export const MAINTENANCE_STATES: readonly MaintenanceStatus[] = [
-  "submitted",
-  "seen",
-  "assigned",
-  "in_progress",
-  "completed",
-  "cost_logged",
-  "posted",
-];
+export const MAINTENANCE_STATES: readonly MaintenanceStatus[] = ["submitted", "in_progress", "waiting", "completed"];
 
+/**
+ * Maintenance flow: a request is submitted, the team (or a manager) starts work, may put it on hold with a note
+ * the tenant can read, and completes it. Cost is optional: entered when the office paid for the repair
+ * (it then reaches the owner statement), left empty when the tenant is responsible.
+ */
 export const maintenanceMachine: Machine<MaintenanceStatus> = {
   name: "maintenance",
   states: MAINTENANCE_STATES,
   transitions: [
-    { from: "submitted", to: "seen", roles: ["manager"], rule: "rule.maint.seen" },
-    { from: "seen", to: "assigned", roles: ["manager"], rule: "rule.maint.assign" },
-    { from: "assigned", to: "in_progress", roles: ["manager", "maintenance"], rule: "rule.maint.start" },
+    { from: "submitted", to: "in_progress", roles: ["manager", "maintenance"], rule: "rule.maint.start" },
+    { from: "in_progress", to: "waiting", roles: ["manager", "maintenance"], rule: "rule.maint.wait" },
+    { from: "waiting", to: "in_progress", roles: ["manager", "maintenance"], rule: "rule.maint.resume" },
     { from: "in_progress", to: "completed", roles: ["manager", "maintenance"], rule: "rule.maint.complete" },
-    { from: "completed", to: "cost_logged", roles: ["manager", "maintenance"], rule: "rule.maint.cost" },
-    { from: "cost_logged", to: "posted", roles: ["system"], rule: "rule.maint.post" },
   ],
 };
 

@@ -31,7 +31,7 @@ describe("demo seed", () => {
       expect(unitStatuses.has(st as never)).toBe(true);
     }
     const maint = new Set((await db.select({ st: s.maintenanceRequests.status }).from(s.maintenanceRequests)).map((r) => r.st));
-    for (const st of ["submitted", "seen", "assigned", "in_progress", "completed", "posted"]) expect(maint.has(st as never)).toBe(true);
+    for (const st of ["submitted", "in_progress", "waiting", "completed"]) expect(maint.has(st as never)).toBe(true);
   });
 
   it("keeps receipt numbers gap free per owner", async () => {

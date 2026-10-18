@@ -64,3 +64,26 @@ export function Stepper({
     </ol>
   );
 }
+
+/**
+ * Compact progress: three short segments with small labels. Takes far less room than the full stepper,
+ * which is kept for the unit lifecycle. A step can be flagged as on hold (amber).
+ */
+export function ProgressSteps({ steps, current, hold }: { steps: { key: string; label: ReactNode; at?: ReactNode }[]; current: string; hold?: boolean }) {
+  const idx = Math.max(0, steps.findIndex((s) => s.key === current));
+  return (
+    <ol className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }} aria-label="Progress">
+      {steps.map((s, i) => {
+        const done = i < idx || (i === idx && current === steps[steps.length - 1].key);
+        const active = i === idx && !done;
+        return (
+          <li key={s.key} aria-current={active ? "step" : undefined}>
+            <span className={cn("block h-1.5 rounded-full", done ? "bg-brand-700" : active ? (hold ? "bg-brass-500" : "bg-warn-600") : "bg-line")} />
+            <span className={cn("mt-1.5 block text-[12.5px] leading-tight", active || done ? "font-semibold text-ink" : "text-ink-3")}>{s.label}</span>
+            {s.at ? <span className="block text-[11.5px] text-ink-3">{s.at}</span> : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}

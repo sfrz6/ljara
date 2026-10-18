@@ -1,5 +1,5 @@
 {
-  "id": "b13049c4-107b-4c7b-b83d-e0dfcd6d3f0b",
+  "id": "d5714c86-c92a-4534-b324-4ad53e48fd12",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -4743,12 +4743,9 @@
       "schema": "public",
       "values": [
         "submitted",
-        "seen",
-        "assigned",
         "in_progress",
-        "completed",
-        "cost_logged",
-        "posted"
+        "waiting",
+        "completed"
       ]
     },
     "public.notification_status": {

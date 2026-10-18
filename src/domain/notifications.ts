@@ -12,6 +12,7 @@ import {
 } from "@/db/schema";
 import { hourInMuscat } from "@/lib/dates";
 import { providers, type ExternalChannel } from "@/integrations/providers";
+import { channelUsable } from "@/lib/features";
 import { TEMPLATE_BY_KEY, interpolate } from "./templates";
 import type { Role } from "./permissions";
 
@@ -168,6 +169,10 @@ export async function notifyTenant(q: DB, msg: TenantMessage): Promise<SendResul
       attempts.push({ channel, status: "skipped", reason: "channel_disabled", at });
       continue;
     }
+    if (!channelUsable(channel)) {
+      attempts.push({ channel, status: "skipped", reason: "provider_not_configured", at });
+      continue;
+    }
     const to = channel === "email" ? tenant.email : tenant.phone;
     if (!to) {
       attempts.push({ channel, status: "skipped", reason: "no_address", at });
@@ -284,8 +289,8 @@ export async function flushQueued(q: DB, orgId: string, now = new Date()): Promi
     for (const channel of ["whatsapp", "sms", "email"] as ExternalChannel[]) {
       const at = new Date().toISOString();
       const to = channel === "email" ? tenant.email : tenant.phone;
-      if (!prefs.channels[channel] || !to) {
-        attempts.push({ channel, status: "skipped", reason: !to ? "no_address" : "channel_disabled", at });
+      if (!prefs.channels[channel] || !to || !channelUsable(channel)) {
+        attempts.push({ channel, status: "skipped", reason: !channelUsable(channel) ? "provider_not_configured" : !to ? "no_address" : "channel_disabled", at });
         continue;
       }
       const r = await providers[channel].send({ to, subject: channel === "email" ? n.subject : null, body: n.body });

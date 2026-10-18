@@ -5,10 +5,11 @@ import { useI18n } from "@/components/i18n-provider";
 import { signupAction } from "@/app/actions/auth";
 import type { Locale } from "@/i18n";
 
-export function SignupForm({ locale }: { locale: Locale }) {
+/** The office and first manager fields. Shared by public signup and the platform "create office" dialog. */
+export function SignupFields({ locale }: { locale: Locale }) {
   const { t } = useI18n();
   return (
-    <ActionForm action={signupAction}>
+    <>
       <Field label={t("auth.org_name")} name="orgName" required>
         <Input name="orgName" autoComplete="organization" />
       </Field>
@@ -20,10 +21,10 @@ export function SignupForm({ locale }: { locale: Locale }) {
       </Field>
       <FormGrid>
         <Field label={t("auth.email")} name="email" required>
-          <Input name="email" type="email" autoComplete="email" />
+          <Input name="email" type="email" autoComplete="off" />
         </Field>
         <Field label={t("auth.phone")} name="phone" required>
-          <Input name="phone" type="tel" autoComplete="tel" placeholder="9123 4567" />
+          <Input name="phone" type="tel" placeholder="9123 4567" />
         </Field>
       </FormGrid>
       <Field label={t("auth.password")} name="password" hint={t("auth.password_hint")} required>
@@ -35,6 +36,15 @@ export function SignupForm({ locale }: { locale: Locale }) {
           <option value="en">{t("common.english")}</option>
         </Select>
       </Field>
+    </>
+  );
+}
+
+export function SignupForm({ locale }: { locale: Locale }) {
+  const { t } = useI18n();
+  return (
+    <ActionForm action={signupAction}>
+      <SignupFields locale={locale} />
       <SubmitButton className="w-full" size="lg">
         {t("auth.create")}
       </SubmitButton>

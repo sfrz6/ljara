@@ -18,6 +18,7 @@ export const metadata: Metadata = {
   title: { default: "Ijara", template: "%s | Ijara" },
   description: "Property management for letting offices in Oman. Cheques, rent, maintenance and owner statements in Arabic and English.",
   applicationName: "Ijara",
+  robots: { index: false, follow: false },
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Ijara", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },

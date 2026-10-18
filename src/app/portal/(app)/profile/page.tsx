@@ -10,6 +10,8 @@ import { Card, CardBody, CardHeader, DefinitionList, Money, Num } from "@/compon
 import { Button } from "@/components/ui/button";
 import { LanguageSwitch } from "@/components/language-switch";
 import { signOutAction } from "@/app/actions/common";
+import { ChangePasswordCard } from "@/components/password-card";
+import { changeTenantPasswordAction } from "@/app/actions/account";
 
 export const metadata = { title: "Profile" };
 
@@ -35,10 +37,13 @@ export default async function PortalProfile() {
             { label: t("contract.term"), value: <>{formatRange(c.startDate, c.endDate, locale)}</> },
             { label: t("unit.monthly_rent"), value: <Money baisa={c.monthlyRentBaisa} locale={locale} /> },
             { label: t("contract.frequency"), value: t(`freq.${c.paymentFrequency}` as never) },
+            { label: t("contract.electricity"), value: c.electricityAccount ? <Num>{c.electricityAccount}</Num> : t("portal.not_provided") },
+            { label: t("contract.water"), value: c.waterAccount ? <Num>{c.waterAccount}</Num> : t("portal.not_provided") },
           ]} />
         </CardBody></Card>
       ) : null}
       <Card><CardBody className="flex items-center justify-between"><span className="text-[14px] font-medium">{t("common.language")}</span><LanguageSwitch locale={locale} /></CardBody></Card>
+      <ChangePasswordCard action={changeTenantPasswordAction} />
       <form action={signOutAction}><input type="hidden" name="to" value="portal" /><Button type="submit" variant="secondary" size="lg" className="w-full"><LogOut className="rtl-flip size-4" aria-hidden />{t("nav.sign_out")}</Button></form>
     </div>
   );

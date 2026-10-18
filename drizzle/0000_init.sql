@@ -7,7 +7,7 @@ CREATE TYPE "public"."import_status" AS ENUM('committed', 'rolled_back');--> sta
 CREATE TYPE "public"."inspection_status" AS ENUM('pending', 'inspected', 'approved', 'rejected');--> statement-breakpoint
 CREATE TYPE "public"."intent_status" AS ENUM('pending', 'succeeded', 'failed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."locale" AS ENUM('en', 'ar');--> statement-breakpoint
-CREATE TYPE "public"."maintenance_status" AS ENUM('submitted', 'seen', 'assigned', 'in_progress', 'completed', 'cost_logged', 'posted');--> statement-breakpoint
+CREATE TYPE "public"."maintenance_status" AS ENUM('submitted', 'in_progress', 'waiting', 'completed');--> statement-breakpoint
 CREATE TYPE "public"."notification_status" AS ENUM('queued', 'sent', 'delivered', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."org_status" AS ENUM('active', 'suspended');--> statement-breakpoint
 CREATE TYPE "public"."otp_purpose" AS ENUM('tenant_activation', 'tenant_reset', 'staff_reset', 'staff_2fa');--> statement-breakpoint

@@ -4,6 +4,8 @@ import { z } from "zod";
 import { activateTenant, requestTenantOtp, resetTenantPassword, tenantLogin } from "@/domain/auth";
 import { completePaymentIntent, createPaymentIntent } from "@/domain/payments";
 import { getDb } from "@/db/client";
+import { ForbiddenError } from "@/domain/errors";
+import { isDemoMode } from "@/lib/demo";
 import { publicAction, parseForm, tenantAction } from "@/lib/action";
 import { getClientMeta, setLocaleCookie, setSessionCookie } from "@/lib/session";
 import { tenants } from "@/db/schema";
@@ -51,6 +53,8 @@ export const payNowAction = tenantAction(async ({ c, form, t }) => {
 });
 
 export const gatewayAction = tenantAction(async ({ c, form, t }) => {
+  // The simulated gateway callback marks a payment as paid. It exists only in the demo environment.
+  if (!isDemoMode()) throw new ForbiddenError();
   const v = parseForm(z.object({ intentId: z.string().uuid("err.not_found"), outcome: z.enum(["success", "failure"]), reason: z.string().optional() }), form, t);
   const res = await completePaymentIntent(c.db, { orgId: c.tenant.orgId, tenantId: c.tenant.id }, v.intentId, v.outcome === "success" ? { result: "success" } : { result: "failure", reason: v.reason || "card_declined" });
   return { redirectTo: `/portal/pay/${v.intentId}/result?status=${res.status}` };

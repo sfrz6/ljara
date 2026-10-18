@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { getDb } from "@/db/client";
 import {
-  addInternalNote, assignRequest, completeRequest, correctCost, decideInspection, logCost, markSeen, performInspection, startWork, submitRequest,
+  addInternalNote, assignRequest, completeRequest, decideInspection, performInspection, putOnHold, setCost, startWork, submitRequest,
 } from "@/domain/maintenance";
 import { parseForm, staffAction, tenantAction } from "@/lib/action";
 import { parseOMR } from "@/lib/money";
@@ -22,14 +22,6 @@ async function savePhotos(form: FormData, ctx: Ctx, category: "maintenance_photo
 }
 
 const uuid = z.string().uuid("err.not_found");
-const cost = z.string().transform((v, c) => {
-  const n = parseOMR(v);
-  if (n === null || n < 0) {
-    c.addIssue({ code: "custom", message: "err.invalid_amount" });
-    return z.NEVER;
-  }
-  return n;
-});
 
 const newReq = z.object({
   unitId: z.string().optional(),
@@ -55,11 +47,6 @@ export const submitTenantRequestAction = tenantAction(async ({ c, form, t }) => 
   return { message: "msg.request_submitted", redirectTo: `/portal/maintenance/${r.id}` };
 });
 
-export const seenAction = staffAction("maintenance:manage", async ({ c, form, t }) => {
-  await markSeen(c.db, c.ctx, parseForm(z.object({ id: uuid }), form, t).id);
-  return { message: "msg.request_updated", revalidate: ["/maintenance"] };
-});
-
 export const assignAction = staffAction("maintenance:manage", async ({ c, form, t }) => {
   const v = parseForm(z.object({ id: uuid, assigneeId: z.string().uuid("err.assignee_invalid") }), form, t);
   await assignRequest(c.db, c.ctx, v.id, v.assigneeId);
@@ -68,28 +55,39 @@ export const assignAction = staffAction("maintenance:manage", async ({ c, form, 
 
 export const startAction = staffAction(null, async ({ c, form, t }) => {
   await startWork(c.db, c.ctx, parseForm(z.object({ id: uuid }), form, t).id);
-  return { message: "msg.request_updated", revalidate: ["/maintenance"] };
+  return { message: "msg.request_started", revalidate: ["/maintenance", "/dashboard"] };
 });
 
+export const holdAction = staffAction(null, async ({ c, form, t }) => {
+  const v = parseForm(z.object({ id: uuid, note: z.string().min(3, "err.note_required") }), form, t);
+  await putOnHold(c.db, c.ctx, v.id, v.note);
+  return { message: "msg.request_on_hold", revalidate: ["/maintenance", "/dashboard"] };
+});
+
+/** Cost is optional: filled when the office paid for the repair, empty when the tenant is responsible. */
+function optionalCost(raw: string | undefined): number | null {
+  if (!raw || raw.trim() === "") return null;
+  const n = parseOMR(raw);
+  if (n === null || n < 0) throw new DomainError("invalid_amount", {}, "cost");
+  return n;
+}
+
 export const completeAction = staffAction(null, async ({ c, form, t }) => {
-  const v = parseForm(z.object({ id: uuid, categoryId: z.string().min(1, "err.category_required"), workPerformed: z.string().min(3, "err.work_required"), technicianNotes: z.string().optional(), cost: z.string().optional() }), form, t);
-  const costBaisa = v.cost && v.cost.trim() !== "" ? parseOMR(v.cost) : null;
-  if (v.cost && v.cost.trim() !== "" && (costBaisa === null || costBaisa < 0)) throw new DomainError("invalid_amount", {}, "cost");
+  const v = parseForm(
+    z.object({ id: uuid, categoryId: z.string().min(1, "err.category_required"), workPerformed: z.string().min(3, "err.work_required"), tenantNote: z.string().optional(), technicianNotes: z.string().optional(), cost: z.string().optional() }),
+    form,
+    t,
+  );
+  const costBaisa = optionalCost(v.cost);
   const photoFileIds = await savePhotos(form, c.ctx);
-  await completeRequest(c.db, c.ctx, v.id, { categoryId: v.categoryId, workPerformed: v.workPerformed, technicianNotes: v.technicianNotes ?? null, costBaisa, photoFileIds });
-  return { message: costBaisa === null ? "msg.request_completed_no_cost" : "msg.request_posted", revalidate: ["/maintenance", "/dashboard"] };
+  await completeRequest(c.db, c.ctx, v.id, { categoryId: v.categoryId, workPerformed: v.workPerformed, tenantNote: v.tenantNote ?? null, technicianNotes: v.technicianNotes ?? null, costBaisa, photoFileIds });
+  return { message: costBaisa === null ? "msg.request_completed" : "msg.request_completed_cost", revalidate: ["/maintenance", "/dashboard"] };
 });
 
 export const costAction = staffAction(null, async ({ c, form, t }) => {
-  const v = parseForm(z.object({ id: uuid, cost }), form, t);
-  await logCost(c.db, c.ctx, v.id, v.cost);
-  return { message: "msg.request_posted", revalidate: ["/maintenance", "/dashboard"] };
-});
-
-export const correctCostAction = staffAction("maintenance:costs", async ({ c, form, t }) => {
-  const v = parseForm(z.object({ id: uuid, cost, reason: z.string().min(3, "err.reason_required") }), form, t);
-  await correctCost(c.db, c.ctx, v.id, v.cost, v.reason);
-  return { message: "msg.request_updated", revalidate: ["/maintenance"] };
+  const v = parseForm(z.object({ id: uuid, cost: z.string().optional(), reason: z.string().optional() }), form, t);
+  await setCost(c.db, c.ctx, v.id, optionalCost(v.cost), v.reason);
+  return { message: "msg.request_updated", revalidate: ["/maintenance", "/dashboard"] };
 });
 
 export const noteAction = staffAction(null, async ({ c, form, t }) => {

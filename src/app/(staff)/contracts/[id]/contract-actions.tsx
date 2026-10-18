@@ -11,7 +11,7 @@ import { manualPaymentAction } from "@/app/actions/finance";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export function ContractActions({ id, status, noticeGiven, renewed, depositHeld, ended, sanad, notes }: { id: string; status: string; noticeGiven: boolean; renewed: boolean; depositHeld: boolean; ended: boolean; sanad: string; notes: string }) {
+export function ContractActions({ id, status, noticeGiven, renewed, depositHeld, ended, sanad, notes, electricity, water }: { id: string; status: string; noticeGiven: boolean; renewed: boolean; depositHeld: boolean; ended: boolean; sanad: string; notes: string; electricity: string; water: string }) {
   const { t } = useI18n();
   return (
     <Card>
@@ -19,6 +19,8 @@ export function ContractActions({ id, status, noticeGiven, renewed, depositHeld,
       <CardBody className="flex flex-col items-stretch gap-2">
         <ActionDialog trigger={t("contract.edit_details")} triggerVariant="ghost" triggerSize="md" title={t("contract.edit_details")} description={t("contract.edit_hint")} action={updateContractAction} hidden={{ id }} submitLabel={t("common.save")}>
           <Field label={t("contract.sanad")} name="sanadReference" optional><Input name="sanadReference" defaultValue={sanad} /></Field>
+          <Field label={t("contract.electricity")} name="electricityAccount" hint={t("contract.utility_hint")} optional><Input name="electricityAccount" dir="ltr" defaultValue={electricity} /></Field>
+          <Field label={t("contract.water")} name="waterAccount" optional><Input name="waterAccount" dir="ltr" defaultValue={water} /></Field>
           <Field label={t("common.notes")} name="notes" optional><Textarea name="notes" rows={3} defaultValue={notes} /></Field>
           <DocumentPicker name="signedDoc" label={t("contract.signed_doc")} />
         </ActionDialog>

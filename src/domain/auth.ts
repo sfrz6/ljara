@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, sql } from "drizzle-orm";
 import type { DB } from "@/db/client";
 import { organisations, otps, rateLimits, sessions, tenants, users } from "@/db/schema";
 import { DEMO_OTP, isDemoMode } from "@/lib/demo";
@@ -425,4 +425,70 @@ export async function listSessions(q: DB, userId: string) {
 
 export async function revokeOwnSession(q: DB, userId: string, sessionId: string): Promise<void> {
   await q.update(sessions).set({ revokedAt: new Date() }).where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)));
+}
+
+/**
+ * Staff-issued one-time code. Lets the office activate a tenant (or reset a forgotten password) when SMS delivery is
+ * not connected: the staff member reads the code to the tenant by phone or hands it over in person. The code is shown
+ * once, stored only as a hash, valid for 24 hours, single use and audited.
+ */
+export const MANUAL_CODE_TTL_HOURS = 24;
+
+export async function issueManualTenantCode(db: DB, ctx: { orgId: string; actor: { kind: "user" | "tenant" | "system"; id: string | null; name: string; role: string } }, tenantId: string) {
+  if (ctx.actor.kind !== "user" || !["manager", "contracts"].includes(ctx.actor.role)) throw new DomainError("forbidden");
+  const [t] = await db.select().from(tenants).where(and(eq(tenants.id, tenantId), eq(tenants.orgId, ctx.orgId)));
+  if (!t || t.status === "archived") throw new DomainError("not_found", { entity: "tenant" });
+  const purpose = t.activatedAt ? "tenant_reset" : "tenant_activation";
+  await db
+    .update(otps)
+    .set({ consumedAt: new Date() })
+    .where(and(eq(otps.subjectId, t.id), eq(otps.purpose, purpose), isNull(otps.consumedAt)));
+  const code = String(100000 + Math.floor(Math.random() * 900000));
+  await db.insert(otps).values({
+    purpose,
+    subjectId: t.id,
+    phone: t.phone,
+    codeHash: sha256(code),
+    expiresAt: new Date(Date.now() + MANUAL_CODE_TTL_HOURS * 3_600_000),
+  });
+  await writeAudit(db, ctx as never, {
+    action: "tenant.manual_code_issued",
+    entityType: "tenant",
+    entityId: t.id,
+    meta: { purpose, validHours: MANUAL_CODE_TTL_HOURS },
+    elevated: true,
+  });
+  return { code, purpose, validHours: MANUAL_CODE_TTL_HOURS };
+}
+
+/** Change your own password. Requires the current one; every other session of the account is signed out. */
+export async function changePassword(
+  db: DB,
+  input: { kind: "staff" | "tenant"; id: string; current: string; next: string; keepSessionId: string },
+): Promise<void> {
+  const weak = validatePasswordStrength(input.next);
+  if (weak) throw new DomainError(weak, {}, "next");
+  if (input.next === input.current) throw new DomainError("password_same", {}, "next");
+  if (input.kind === "staff") {
+    const [u] = await db.select().from(users).where(eq(users.id, input.id));
+    if (!u || !(await verifyPassword(input.current, u.passwordHash))) throw new DomainError("wrong_current_password", {}, "current");
+    await db.update(users).set({ passwordHash: await hashPassword(input.next) }).where(eq(users.id, u.id));
+    await db.update(sessions).set({ revokedAt: new Date() }).where(and(eq(sessions.userId, u.id), isNull(sessions.revokedAt), input.keepSessionId ? ne(sessions.id, input.keepSessionId) : undefined));
+    await writeAudit(db, { orgId: u.orgId, actor: { kind: "user", id: u.id, name: u.name, role: u.role } }, { action: "auth.password_changed", entityType: "user", entityId: u.id, elevated: true });
+    return;
+  }
+  const [t] = await db.select().from(tenants).where(eq(tenants.id, input.id));
+  if (!t || !(await verifyPassword(input.current, t.passwordHash))) throw new DomainError("wrong_current_password", {}, "current");
+  await db.update(tenants).set({ passwordHash: await hashPassword(input.next) }).where(eq(tenants.id, t.id));
+  await db.update(sessions).set({ revokedAt: new Date() }).where(and(eq(sessions.tenantId, t.id), isNull(sessions.revokedAt), input.keepSessionId ? ne(sessions.id, input.keepSessionId) : undefined));
+  await writeAudit(db, { orgId: t.orgId, actor: { kind: "tenant", id: t.id, name: t.nameEn, role: "tenant" } }, { action: "auth.password_changed", entityType: "tenant", entityId: t.id, elevated: true });
+}
+
+/** Housekeeping for the daily job: expired sessions, spent codes and old rate limit rows. */
+export async function cleanupAuthTables(db: DB): Promise<{ sessions: number; otps: number; limits: number }> {
+  const sessionCutoff = new Date(Date.now() - 7 * 86_400_000);
+  const s = await db.delete(sessions).where(lt(sessions.expiresAt, sessionCutoff)).returning({ id: sessions.id });
+  const o = await db.delete(otps).where(lt(otps.expiresAt, new Date(Date.now() - 86_400_000))).returning({ id: otps.id });
+  const l = await db.delete(rateLimits).where(lt(rateLimits.windowStartedAt, new Date(Date.now() - 2 * 86_400_000))).returning({ key: rateLimits.key });
+  return { sessions: s.length, otps: o.length, limits: l.length };
 }

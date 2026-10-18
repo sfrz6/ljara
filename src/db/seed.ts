@@ -12,7 +12,7 @@ import { createBuilding, createOwner, createUnit, type OwnerInput } from "@/doma
 import { createTenant } from "@/domain/tenants";
 import { createContract, completeMoveOut, giveNotice, type ChequeRow } from "@/domain/contracts";
 import { bounceCheque, collectCheque, promoteDueCheques, startFollowUp } from "@/domain/cheques";
-import { assignRequest, completeRequest, performInspection, startWork, submitRequest } from "@/domain/maintenance";
+import { completeRequest, performInspection, putOnHold, startWork, submitRequest } from "@/domain/maintenance";
 import { generateSchedule, type PaymentFrequency } from "@/domain/finance";
 import { seedCategories } from "@/domain/organisation";
 import { saveFile } from "@/lib/storage";
@@ -274,6 +274,8 @@ export async function seedDemo(db: DB): Promise<Seeded> {
       cheques: rowsFor(start, end, monthly, u.freq),
       security: { amountBaisa: monthly, chequeNumber: String(chequeNo++).padStart(6, "0"), bank: BANKS[(chequeNo + 2) % BANKS.length], chequeDate: start },
       sanadReference: `SND-${start.slice(0, 4)}-${String(100000 + chequeNo)}`,
+      electricityAccount: `${3100000 + chequeNo % 900000}`,
+      waterAccount: `${5200000 + (chequeNo * 7) % 900000}`,
     });
     contractByUnit[u.label] = contract.id;
   }
@@ -341,12 +343,11 @@ export async function seedDemo(db: DB): Promise<Seeded> {
     await db.execute(sql`update maintenance_events set at = at - make_interval(days => ${days}) where request_id = ${id}`);
   };
 
-  const done = async (label: string, who: Ctx, title: string, description: string, categoryKey: string, work: string, cost: string, daysAgo: number, tenantSubmit = true) => {
+  const done = async (label: string, who: Ctx, title: string, description: string, categoryKey: string, work: string, cost: string | null, daysAgo: number, tenantSubmit = true) => {
     const submitCtx = tenantSubmit ? tenantCtx(label) : mgr;
     const r = await submitRequest(db, submitCtx, { unitId: unitIds[label], tenantId: tenantByUnit[label], title, description, priority: "normal", categoryId: cat(categoryKey) });
-    await assignRequest(db, mgr, r.id, who.actor.id!);
     await startWork(db, who, r.id);
-    await completeRequest(db, who, r.id, { categoryId: cat(categoryKey), workPerformed: work, costBaisa: omr(cost) });
+    await completeRequest(db, who, r.id, { categoryId: cat(categoryKey), workPerformed: work, costBaisa: cost === null ? null : omr(cost) });
     await backdate(r.id, daysAgo);
     return r;
   };
@@ -359,29 +360,31 @@ export async function seedDemo(db: DB): Promise<Seeded> {
   await done("Q-203", tech2, "AC not cooling", "The same unit stopped cooling.", "ac", "Recharged gas and replaced the capacitor.", "60.000", dAgo(lastMonthDay) - 3);
   await done("V-02", tech, "Garden irrigation timer faulty", "The irrigation does not start in the morning.", "electrical", "Replaced the timer relay and re-programmed the schedule.", "22.000", dAgo(lastMonthDay) + 2);
   await done("A-104", tech2, "Repaint the living room wall", "Water stain on the living room wall after the pipe repair.", "painting", "Sanded and repainted the affected wall, two coats.", "85.000", 9, false);
+  await done("Q-206", tech2, "Broken bathroom shelf", "The glass shelf fell and broke.", "carpentry", "Removed the broken shelf. The tenant arranged and paid for a new one.", null, 6);
   await done("S-01", tech, "Shop signage light not working", "The front sign is dark in the evening.", "electrical", "Replaced the LED driver and tested the circuit.", "27.500", 5);
 
+  // In progress
   const r1 = await submitRequest(db, tenantCtx("A-101"), { title: "AC not cooling in the living room", description: "The living room AC runs but the air is warm since yesterday.", priority: "normal", categoryId: cat("ac"), photoFileIds: [await photo([96, 128, 150], "ac-unit.png")] });
-  await assignRequest(db, mgr, r1.id, users.maintenance.id);
   await startWork(db, tech, r1.id);
   await backdate(r1.id, 2);
 
+  // On hold with a note the tenant can read
   const r2 = await submitRequest(db, tenantCtx("G-2"), { title: "Loose tiles in the bathroom", description: "Three floor tiles near the shower moved and sound hollow.", priority: "normal", categoryId: cat("civil"), photoFileIds: [await photo([150, 140, 120], "tiles.png")] });
-  await assignRequest(db, mgr, r2.id, users.maintenance2.id);
+  await startWork(db, tech2, r2.id);
+  await putOnHold(db, tech2, r2.id, "Waiting for matching tiles from the supplier. We expect them on Thursday and will finish the same day.");
   await backdate(r2.id, 3);
 
+  // Completed by the office team, nothing charged to the owner yet
   const r3 = await submitRequest(db, tenantCtx("Q-205"), { title: "No hot water", description: "The water heater does not heat since the weekend.", priority: "urgent", categoryId: cat("plumbing") });
-  await assignRequest(db, mgr, r3.id, users.maintenance.id);
   await startWork(db, tech, r3.id);
-  await completeRequest(db, tech, r3.id, { categoryId: cat("plumbing"), workPerformed: "Replaced the heating element and thermostat on the water heater." });
+  await completeRequest(db, tech, r3.id, { categoryId: cat("plumbing"), workPerformed: "Replaced the heating element and thermostat on the water heater.", costBaisa: omr("42.000"), tenantNote: "Hot water is back. Please tell us if the problem returns." });
   await backdate(r3.id, 4);
 
-  const r4 = await submitRequest(db, tenantCtx("P-301"), { title: "Main door lock is stuck", description: "The key turns but the door does not open easily. It got worse today.", priority: "urgent", categoryId: cat("carpentry"), photoFileIds: [await photo([120, 110, 100], "door-lock.png"), await photo([140, 130, 110], "door-frame.png")] });
-  void r4;
+  // New requests waiting for the team
+  await submitRequest(db, tenantCtx("P-301"), { title: "Main door lock is stuck", description: "The key turns but the door does not open easily. It got worse today.", priority: "urgent", categoryId: cat("carpentry"), photoFileIds: [await photo([120, 110, 100], "door-lock.png"), await photo([140, 130, 110], "door-frame.png")] });
   const r5 = await submitRequest(db, tenantCtx("P-304"), { title: "Corridor light flickering", description: "The light outside my door flickers at night.", priority: "normal", categoryId: cat("electrical") });
   await backdate(r5.id, 1);
-  const r6 = await submitRequest(db, mgr, { unitId: unitIds["Q-201"], tenantId: tenantByUnit["Q-201"], title: "Reported by phone: balcony door does not close", description: "Tenant called the office. The balcony sliding door is off its track.", priority: "normal", categoryId: cat("carpentry") });
-  await db.update(s.maintenanceRequests).set({ status: "seen", seenAt: new Date() }).where(eq(s.maintenanceRequests.id, r6.id));
+  await submitRequest(db, mgr, { unitId: unitIds["Q-201"], tenantId: tenantByUnit["Q-201"], title: "Reported by phone: balcony door does not close", description: "Tenant called the office. The balcony sliding door is off its track.", priority: "normal", categoryId: cat("carpentry") });
 
   /* ---------------------------- Restore alert preferences ---------------------------- */
   await db.update(s.organisations).set({ notificationPrefs: prefsBefore }).where(eq(s.organisations.id, org.id));

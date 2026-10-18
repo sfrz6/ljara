@@ -24,6 +24,7 @@ import { DomainError, NotFoundError } from "./errors";
 import { formatReceiptNumber, gatewayFee } from "./finance";
 import { assertTransition, chequeMachine, type ChequeStatus } from "./machines";
 import { notifyStaff, notifyTenant } from "./notifications";
+import { gatewayAvailable } from "@/lib/features";
 import { assertCan, type Role } from "./permissions";
 
 type Method = "cheque" | "online" | "cash" | "bank_transfer";
@@ -310,7 +311,7 @@ export async function voidReceipt(db: DB, ctx: Ctx, receiptId: string, reason: s
 /** Rules for "Pay now" on a schedule item (proposal 14.1). Security deposits cannot reach this path. */
 export async function assertPayable(db: DB, orgId: string, item: typeof scheduleItems.$inferSelect) {
   const [org] = await db.select().from(organisations).where(eq(organisations.id, orgId));
-  if (!org.onlinePaymentsEnabled) throw new DomainError("online_payments_disabled");
+  if (!org.onlinePaymentsEnabled || !gatewayAvailable()) throw new DomainError("online_payments_disabled");
   if (item.status !== "open") throw new DomainError("item_not_open");
   const live = await db
     .select({ id: cheques.id })

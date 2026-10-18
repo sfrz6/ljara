@@ -3,8 +3,6 @@ import { redirect } from "next/navigation";
 import { AuthShell } from "@/components/auth-shell";
 import { getTenant } from "@/lib/context";
 import { getLocale, getT } from "@/lib/session";
-import { isDemoMode, DEMO_OTP } from "@/lib/demo";
-import { DEMO_PASSWORD } from "@/lib/demo-public";
 import { TenantLoginForm } from "./form";
 
 export const metadata = { title: "Tenant portal" };
@@ -25,7 +23,7 @@ export default async function PortalLogin() {
         </div>
       }
     >
-      <TenantLoginForm demo={isDemoMode() ? { id: "12345678", password: DEMO_PASSWORD, otp: DEMO_OTP } : null} />
+      <TenantLoginForm demo={null} />
     </AuthShell>
   );
 }

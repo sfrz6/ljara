@@ -1,6 +1,8 @@
 "use server";
 
 import { z } from "zod";
+import { DomainError } from "@/domain/errors";
+import { signupEnabled } from "@/lib/features";
 import { getDb } from "@/db/client";
 import { signupOrganisation } from "@/domain/organisation";
 import { completeStaff2fa, createSession, requestStaffReset, resetStaffPassword, resolveSession, staffLogin } from "@/domain/auth";
@@ -37,6 +39,7 @@ const signupSchema = z.object({
 });
 
 export const signupAction = publicAction(async ({ form, t }) => {
+  if (!signupEnabled()) throw new DomainError("signup_disabled");
   const input = parseForm(signupSchema, form, t);
   const db = await getDb();
   const { user } = await signupOrganisation(db, input);

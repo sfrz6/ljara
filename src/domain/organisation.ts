@@ -15,6 +15,7 @@ import type { Ctx } from "./context";
 import { DomainError, NotFoundError } from "./errors";
 import { assertCan, STAFF_ROLES, type Role } from "./permissions";
 import { revokeAllSessions } from "./auth";
+import { gatewayAvailable } from "@/lib/features";
 
 const role = (ctx: Ctx) => ctx.actor.role as Role;
 
@@ -72,6 +73,7 @@ export async function signupOrganisation(db: DB, input: SignupInput) {
         phone,
         email,
         notificationPrefs: defaultNotificationPrefs,
+        onlinePaymentsEnabled: gatewayAvailable(),
       })
       .returning();
     const [user] = await tx
@@ -278,4 +280,16 @@ export async function resetTemplate(db: DB, ctx: Ctx, key: string, locale: "en" 
     .delete(messageTemplates)
     .where(and(eq(messageTemplates.orgId, ctx.orgId), eq(messageTemplates.key, key), eq(messageTemplates.locale, locale)));
   await writeAudit(db, ctx, { action: "template.reset", entityType: "message_template", entityId: key, after: { locale } });
+}
+
+/** A manager sets a new starting password for a colleague (for example after they forgot theirs). Signs them out everywhere. */
+export async function resetStaffPasswordByManager(db: DB, ctx: Ctx, userId: string, password: string) {
+  assertCan(role(ctx), "users:manage");
+  const weak = validatePasswordStrength(password);
+  if (weak) throw new DomainError(weak, {}, "password");
+  const [u] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.orgId, ctx.orgId)));
+  if (!u) throw new NotFoundError("user");
+  await db.update(users).set({ passwordHash: await hashPassword(password) }).where(eq(users.id, u.id));
+  await revokeAllSessions(db, u.id);
+  await writeAudit(db, ctx, { action: "user.password_reset_by_manager", entityType: "user", entityId: u.id, elevated: true });
 }

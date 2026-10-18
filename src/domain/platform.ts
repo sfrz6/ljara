@@ -37,3 +37,16 @@ export async function organisationSummaries(db: DB): Promise<OrgSummary[]> {
 export async function revokeAllOrgSessions(db: DB, orgId: string): Promise<void> {
   await db.update(sessions).set({ revokedAt: new Date() }).where(and(eq(sessions.orgId, orgId), isNull(sessions.revokedAt), inArray(sessions.kind, ["staff", "tenant"])));
 }
+
+/** Create a new office and its first manager. Used by the platform administrator when public signup is closed. */
+export async function createOfficeByPlatform(
+  db: DB,
+  actor: { id: string; name: string },
+  input: { orgName: string; orgNameAr?: string | null; adminName: string; email: string; phone: string; password: string; locale: "en" | "ar" },
+) {
+  const { signupOrganisation } = await import("./organisation");
+  const { writeAudit } = await import("./audit");
+  const res = await signupOrganisation(db, input);
+  await writeAudit(db, { orgId: res.org.id, actor: { kind: "user", id: actor.id, name: actor.name, role: "platform_admin" } }, { action: "platform.office_created", entityType: "organisation", entityId: res.org.id, elevated: true });
+  return res;
+}

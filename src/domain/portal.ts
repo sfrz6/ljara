@@ -14,6 +14,7 @@ import {
   units,
 } from "@/db/schema";
 import { todayISO } from "@/lib/dates";
+import { gatewayAvailable } from "@/lib/features";
 import { NotFoundError } from "./errors";
 import { tenantScheduleStatus, type TenantScheduleStatus } from "./finance";
 import type { MaintenanceStatus } from "./machines";
@@ -29,17 +30,16 @@ export interface TenantScope {
 }
 
 /** Status vocabulary shown to the tenant for a maintenance request (CR-5.6). */
-export type TenantRequestStatus = "received" | "assigned" | "in_progress" | "completed";
+export type TenantRequestStatus = "received" | "in_progress" | "waiting" | "completed";
 
 export function tenantRequestStatus(status: MaintenanceStatus): TenantRequestStatus {
   switch (status) {
     case "submitted":
-    case "seen":
       return "received";
-    case "assigned":
-      return "assigned";
     case "in_progress":
       return "in_progress";
+    case "waiting":
+      return "waiting";
     default:
       return "completed";
   }
@@ -54,6 +54,8 @@ export async function tenantContract(q: DB, t: TenantScope) {
       endDate: contracts.endDate,
       monthlyRentBaisa: contracts.monthlyRentBaisa,
       paymentFrequency: contracts.paymentFrequency,
+      electricityAccount: contracts.electricityAccount,
+      waterAccount: contracts.waterAccount,
       status: contracts.status,
       unitLabel: units.label,
       unitLabelAr: units.labelAr,
@@ -117,7 +119,7 @@ export async function tenantSchedule(q: DB, t: TenantScope, today = todayISO()):
       status,
       receiptId: receiptByItem.get(i.id)?.id ?? null,
       receiptNumber: receiptByItem.get(i.id)?.display ?? null,
-      canPayOnline: org.onlinePaymentsEnabled && i.status === "open" && !covered && i.dueDate <= today,
+      canPayOnline: org.onlinePaymentsEnabled && gatewayAvailable() && i.status === "open" && !covered && i.dueDate <= today,
     };
   });
   return { visible: true, items: rows };
@@ -168,16 +170,12 @@ export async function tenantRequestDetail(q: DB, t: TenantScope, requestId: stri
     .where(and(eq(maintenanceRequests.id, requestId), eq(maintenanceRequests.orgId, t.orgId), eq(maintenanceRequests.tenantId, t.tenantId)));
   if (!r) throw new NotFoundError("maintenance_request");
   const events = await q
-    .select({ status: maintenanceEvents.status, at: maintenanceEvents.at })
+    .select({ status: maintenanceEvents.status, at: maintenanceEvents.at, note: maintenanceEvents.note })
     .from(maintenanceEvents)
     .where(and(eq(maintenanceEvents.requestId, r.id), eq(maintenanceEvents.internal, false)))
     .orderBy(asc(maintenanceEvents.at));
-  // Collapse internal steps into the four statuses the tenant understands.
-  const timeline: { status: TenantRequestStatus; at: Date }[] = [];
-  for (const e of events) {
-    const st = tenantRequestStatus(e.status as MaintenanceStatus);
-    if (!timeline.some((x) => x.status === st)) timeline.push({ status: st, at: e.at });
-  }
+  // Every update the tenant is allowed to read, oldest first. Internal notes never reach this list.
+  const timeline = events.map((e) => ({ status: tenantRequestStatus(e.status as MaintenanceStatus), at: e.at, note: e.note }));
   const photos = await q
     .select({ fileId: attachments.fileId })
     .from(attachments)

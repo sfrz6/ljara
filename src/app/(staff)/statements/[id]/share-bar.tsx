@@ -15,7 +15,7 @@ export function ShareBar({ id, number }: { id: string; number: string }) {
   async function share() {
     try {
       const res = await fetch(`/api/pdf/statement/${id}?lang=${locale}&share=whatsapp`);
-      if (!res.ok) throw new Error();
+      if (!res.ok || !(res.headers.get("content-type") ?? "").includes("pdf")) throw new Error();
       const blob = await res.blob();
       const file = new File([blob], `${number}.pdf`, { type: "application/pdf" });
       const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };

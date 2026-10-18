@@ -55,22 +55,29 @@ describe("unit state machine (CR-11.1)", () => {
   });
 });
 
-describe("maintenance state machine (CR-11.2)", () => {
-  it("runs submitted to posted in order and nothing can skip a step", () => {
-    const order = MAINTENANCE_STATES;
-    for (let i = 0; i < order.length; i++) {
-      for (let j = 0; j < order.length; j++) {
-        const legal = j === i + 1;
-        const actor = order[j] === "posted" ? "system" : order[j] === "seen" || order[j] === "assigned" ? "manager" : "maintenance";
-        expect(canTransition(maintenanceMachine, order[i], order[j], actor)).toBe(legal);
-      }
-    }
+describe("maintenance state machine", () => {
+  it("runs submitted, in progress, waiting and completed", () => {
+    expect(canTransition(maintenanceMachine, "submitted", "in_progress", "maintenance")).toBe(true);
+    expect(canTransition(maintenanceMachine, "submitted", "in_progress", "manager")).toBe(true);
+    expect(canTransition(maintenanceMachine, "in_progress", "waiting", "maintenance")).toBe(true);
+    expect(canTransition(maintenanceMachine, "waiting", "in_progress", "maintenance")).toBe(true);
+    expect(canTransition(maintenanceMachine, "in_progress", "completed", "maintenance")).toBe(true);
   });
 
-  it("only the system posts to the owner report, and a technician cannot assign", () => {
-    expect(canTransition(maintenanceMachine, "cost_logged", "posted", "manager")).toBe(false);
-    expect(canTransition(maintenanceMachine, "cost_logged", "posted", "system")).toBe(true);
-    expect(canTransition(maintenanceMachine, "seen", "assigned", "maintenance")).toBe(false);
+  it("refuses everything else", () => {
+    const allowed = new Set(maintenanceMachine.transitions.map((t) => `${t.from}>${t.to}`));
+    for (const from of MAINTENANCE_STATES) {
+      for (const to of MAINTENANCE_STATES) {
+        if (!allowed.has(`${from}>${to}`)) expect(canTransition(maintenanceMachine, from, to, "manager")).toBe(false);
+      }
+    }
+    expect(canTransition(maintenanceMachine, "submitted", "completed", "manager")).toBe(false);
+    expect(canTransition(maintenanceMachine, "completed", "in_progress", "manager")).toBe(false);
+  });
+
+  it("accounts and contracts staff cannot move a request", () => {
+    expect(canTransition(maintenanceMachine, "submitted", "in_progress", "accounts")).toBe(false);
+    expect(canTransition(maintenanceMachine, "in_progress", "completed", "contracts")).toBe(false);
   });
 });
 

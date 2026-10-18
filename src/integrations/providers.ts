@@ -40,10 +40,32 @@ class SimulatedProvider implements MessageProvider {
   }
 }
 
+/** Real email through Resend's HTTP API. Used when RESEND_API_KEY and EMAIL_FROM are set. */
+class ResendProvider implements MessageProvider {
+  readonly channel = "email" as const;
+
+  async send(message: OutgoingMessage): Promise<ProviderResult> {
+    if (!message.to) return { ok: false, reason: "missing_recipient" };
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [message.to], subject: message.subject ?? "Ijara", text: message.body }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const json = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
+      if (res.ok && json.id) return { ok: true, providerRef: json.id };
+      return { ok: false, reason: json.message ?? `http_${res.status}` };
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "network_error" };
+    }
+  }
+}
+
 export const providers: Record<ExternalChannel, MessageProvider> = {
   sms: new SimulatedProvider("sms", "tmm"),
   whatsapp: new SimulatedProvider("whatsapp", "wamid"),
-  email: new SimulatedProvider("email", "rsnd"),
+  email: process.env.RESEND_API_KEY && process.env.EMAIL_FROM ? new ResendProvider() : new SimulatedProvider("email", "rsnd"),
 };
 
 /** Test hook: replace a provider (for example to force a hard failure and prove the fallback chain). */

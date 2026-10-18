@@ -179,41 +179,21 @@ export async function submitRequest(db: DB, ctx: Ctx, input: RequestInput) {
   });
 }
 
-export async function markSeen(db: DB, ctx: Ctx, requestId: string) {
-  assertCan(role(ctx), "maintenance:manage");
-  const r = await load(db, ctx, requestId);
-  return step(db, ctx, r, "seen", { seenAt: new Date() });
-}
-
-/** Assign to a maintenance team member. From "submitted" this records "seen by manager" first, as the workflow requires. */
-export async function assignRequest(db: DB, ctx: Ctx, requestId: string, assigneeId: string, note?: string) {
+/** Optional: a manager can hand a request to a specific technician. It is not a status; anyone on the team can still work it. */
+export async function assignRequest(db: DB, ctx: Ctx, requestId: string, assigneeId: string) {
   assertCan(role(ctx), "maintenance:manage");
   return db.transaction(async (tx0) => {
     const tx = tx0 as unknown as DB;
-    let r = await load(tx, ctx, requestId);
+    const r = await load(tx, ctx, requestId);
+    if (r.status === "completed") throw new DomainError("invalid_transition", { machine: "maintenance", from: r.status, to: r.status });
     const [assignee] = await tx
       .select()
       .from(users)
       .where(and(eq(users.id, assigneeId), eq(users.orgId, ctx.orgId), eq(users.active, true), eq(users.role, "maintenance")));
     if (!assignee) throw new DomainError("assignee_invalid", {}, "assigneeId");
-    if (r.status === "submitted") r = await step(tx, ctx, r, "seen", { seenAt: new Date() });
-    if (r.status === "assigned") {
-      // Re-assignment keeps the state; only the technician changes.
-      await tx
-        .update(maintenanceRequests)
-        .set({ assignedToUserId: assignee.id, assignedAt: new Date(), updatedAt: new Date() })
-        .where(eq(maintenanceRequests.id, r.id));
-      await writeAudit(tx, ctx, {
-        action: "maintenance.reassigned",
-        entityType: "maintenance_request",
-        entityId: r.id,
-        before: { assignedTo: r.assignedToUserId },
-        after: { assignedTo: assignee.id },
-      });
-      await logEvent(tx, ctx, r.id, "assigned", `Reassigned to ${assignee.name}`, true);
-    } else {
-      r = await step(tx, ctx, r, "assigned", { assignedToUserId: assignee.id, assignedAt: new Date() }, note);
-    }
+    await tx.update(maintenanceRequests).set({ assignedToUserId: assignee.id, assignedAt: new Date(), updatedAt: new Date() }).where(eq(maintenanceRequests.id, r.id));
+    await writeAudit(tx, ctx, { action: "maintenance.assigned", entityType: "maintenance_request", entityId: r.id, before: { assignedTo: r.assignedToUserId }, after: { assignedTo: assignee.id } });
+    await logEvent(tx, ctx, r.id, r.status as MaintenanceStatus, `Assigned to ${assignee.name}`, true);
     const [unit] = await tx.select().from(units).where(eq(units.id, r.unitId));
     await notifyStaff(tx, {
       orgId: ctx.orgId,
@@ -229,30 +209,52 @@ export async function assignRequest(db: DB, ctx: Ctx, requestId: string, assigne
   });
 }
 
-function assertCanWork(ctx: Ctx, r: typeof maintenanceRequests.$inferSelect) {
+/** The maintenance team or a manager can work any request in their office. */
+function assertCanWork(ctx: Ctx) {
   const rl = role(ctx);
   if (rl === "manager") return;
   assertCan(rl, "maintenance:work");
-  if (r.assignedToUserId !== ctx.actor.id) throw new DomainError("not_assigned_to_you");
 }
 
+async function tellTenant(tx: DB, ctx: Ctx, r: typeof maintenanceRequests.$inferSelect, template: string, extra: Record<string, string> = {}) {
+  if (!r.tenantId) return;
+  await notifyTenant(tx, {
+    orgId: ctx.orgId,
+    tenantId: r.tenantId,
+    template,
+    vars: { reference: r.reference, title: r.title, ...extra },
+    idempotencyKey: `maint:${template}:${r.id}:${Date.now()}`,
+    link: `/portal/maintenance/${r.id}`,
+    related: { type: "maintenance_request", id: r.id },
+  });
+}
+
+/** submitted or waiting -> in progress. Whoever starts becomes the person responsible if nobody is assigned. */
 export async function startWork(db: DB, ctx: Ctx, requestId: string) {
-  const r = await load(db, ctx, requestId);
-  assertCanWork(ctx, r);
+  assertCanWork(ctx);
   return db.transaction(async (tx0) => {
     const tx = tx0 as unknown as DB;
-    const next = await step(tx, ctx, r, "in_progress", { startedAt: new Date() });
-    if (r.tenantId) {
-      await notifyTenant(tx, {
-        orgId: ctx.orgId,
-        tenantId: r.tenantId,
-        template: "maintenance_in_progress",
-        vars: { reference: r.reference, title: r.title },
-        idempotencyKey: `maint_progress:${r.id}`,
-        link: `/portal/maintenance/${r.id}`,
-        related: { type: "maintenance_request", id: r.id },
-      });
-    }
+    const r = await load(tx, ctx, requestId);
+    const resuming = r.status === "waiting";
+    const next = await step(tx, ctx, r, "in_progress", {
+      startedAt: r.startedAt ?? new Date(),
+      assignedToUserId: r.assignedToUserId ?? (ctx.actor.kind === "user" ? ctx.actor.id : null),
+    });
+    if (!resuming) await tellTenant(tx, ctx, r, "maintenance_in_progress");
+    return next;
+  });
+}
+
+/** in progress -> waiting. The note is shown to the tenant (for example "waiting for a spare part"). */
+export async function putOnHold(db: DB, ctx: Ctx, requestId: string, note: string) {
+  assertCanWork(ctx);
+  const text = note.trim();
+  if (text.length < 3) throw new DomainError("note_required", {}, "note");
+  return db.transaction(async (tx0) => {
+    const tx = tx0 as unknown as DB;
+    const r = await load(tx, ctx, requestId);
+    const next = await step(tx, ctx, r, "waiting", {}, text);
+    await tellTenant(tx, ctx, r, "maintenance_waiting", { note: text });
     return next;
   });
 }
@@ -260,96 +262,86 @@ export async function startWork(db: DB, ctx: Ctx, requestId: string) {
 export interface CompleteInput {
   categoryId: string;
   workPerformed: string;
+  /** Optional message the tenant can read. */
+  tenantNote?: string | null;
   technicianNotes?: string | null;
-  /** Optional: when supplied the request is taken straight through cost logged and posted. Zero is allowed. */
+  /**
+   * Cost paid by the office, in baisa. When set it is charged to the owner and reaches the manager's reports and the
+   * owner statement automatically. Leave null when the tenant is responsible for the repair.
+   */
   costBaisa?: number | null;
   photoFileIds?: string[];
 }
 
 export async function completeRequest(db: DB, ctx: Ctx, requestId: string, input: CompleteInput) {
-  const r0 = await load(db, ctx, requestId);
-  assertCanWork(ctx, r0);
+  assertCanWork(ctx);
   if (!input.categoryId) throw new DomainError("category_required", {}, "categoryId");
   if (input.workPerformed.trim().length < 3) throw new DomainError("work_required", {}, "workPerformed");
-  if (input.costBaisa !== null && input.costBaisa !== undefined && (!Number.isSafeInteger(input.costBaisa) || input.costBaisa < 0)) {
-    throw new DomainError("invalid_amount", {}, "cost");
-  }
+  const cost = input.costBaisa ?? null;
+  if (cost !== null && (!Number.isSafeInteger(cost) || cost < 0)) throw new DomainError("invalid_amount", {}, "cost");
   return db.transaction(async (tx0) => {
     const tx = tx0 as unknown as DB;
+    const r0 = await load(tx, ctx, requestId);
     const [cat] = await tx
       .select({ id: maintenanceCategories.id })
       .from(maintenanceCategories)
       .where(and(eq(maintenanceCategories.id, input.categoryId), eq(maintenanceCategories.orgId, ctx.orgId)));
     if (!cat) throw new NotFoundError("category");
-    let r = await step(tx, ctx, r0, "completed", {
-      categoryId: input.categoryId,
-      workPerformed: input.workPerformed.trim(),
-      technicianNotes: input.technicianNotes ?? null,
-      completedAt: new Date(),
-      completedOn: todayISO(),
-    });
+    const r = await step(
+      tx,
+      ctx,
+      r0,
+      "completed",
+      {
+        categoryId: input.categoryId,
+        workPerformed: input.workPerformed.trim(),
+        technicianNotes: input.technicianNotes ?? null,
+        completedAt: new Date(),
+        completedOn: todayISO(),
+        costBaisa: cost,
+        costLoggedAt: cost === null ? null : new Date(),
+        postedAt: cost === null ? null : new Date(),
+        assignedToUserId: r0.assignedToUserId ?? (ctx.actor.kind === "user" ? ctx.actor.id : null),
+      },
+      input.tenantNote?.trim() || undefined,
+    );
     for (const fileId of input.photoFileIds ?? []) {
-      await tx.insert(attachments).values({
-        orgId: ctx.orgId,
-        fileId,
-        entityType: "maintenance_request",
-        entityId: r.id,
-        kind: "work_photo",
-        internal: true,
-      });
+      await tx.insert(attachments).values({ orgId: ctx.orgId, fileId, entityType: "maintenance_request", entityId: r.id, kind: "work_photo", internal: true });
     }
-    if (r.tenantId) {
-      await notifyTenant(tx, {
-        orgId: ctx.orgId,
-        tenantId: r.tenantId,
-        template: "maintenance_completed",
-        vars: { reference: r.reference, title: r.title },
-        idempotencyKey: `maint_done:${r.id}`,
-        link: `/portal/maintenance/${r.id}`,
-        related: { type: "maintenance_request", id: r.id },
-      });
+    if (cost !== null) {
+      await writeAudit(tx, ctx, { action: "maintenance.cost_charged_to_owner", entityType: "maintenance_request", entityId: r.id, after: { costBaisa: cost }, elevated: true });
     }
-    if (input.costBaisa !== null && input.costBaisa !== undefined) {
-      r = await logCostInternal(tx, ctx, r, input.costBaisa);
-    }
+    await tellTenant(tx, ctx, r, "maintenance_completed");
     return r;
   });
 }
 
-async function logCostInternal(tx: DB, ctx: Ctx, r: typeof maintenanceRequests.$inferSelect, costBaisa: number) {
-  let next = await step(tx, ctx, r, "cost_logged", { costBaisa, costLoggedAt: new Date() });
-  // The cost flows into owner reporting automatically: no second entry (CR-7.5).
-  next = await step(tx, { ...ctx, actor: { kind: "system", id: null, name: "System", role: "system" } }, next, "posted", { postedAt: new Date() });
-  return next;
-}
-
-/** Record the cost of a completed request. Zero is a valid cost. Posts to the owner report automatically. */
-export async function logCost(db: DB, ctx: Ctx, requestId: string, costBaisa: number) {
+/**
+ * Add or change the office's repair cost on a completed request. The technician can add a cost that was left empty;
+ * only a manager can change an existing one, and always with a reason. Clearing it (tenant pays) is also a manager action.
+ */
+export async function setCost(db: DB, ctx: Ctx, requestId: string, costBaisa: number | null, reason?: string) {
   const r = await load(db, ctx, requestId);
-  if (role(ctx) !== "manager") assertCan(role(ctx), "maintenance:work");
-  if (role(ctx) !== "manager" && r.assignedToUserId !== ctx.actor.id) throw new DomainError("not_assigned_to_you");
-  if (!Number.isSafeInteger(costBaisa) || costBaisa < 0) throw new DomainError("invalid_amount", {}, "cost");
-  return db.transaction(async (tx) => logCostInternal(tx as unknown as DB, ctx, r, costBaisa));
-}
-
-/** Manager correction of a posted cost. Audited with before and after; the owner report follows automatically. */
-export async function correctCost(db: DB, ctx: Ctx, requestId: string, costBaisa: number, reason: string) {
-  assertCan(role(ctx), "maintenance:costs");
-  const r = await load(db, ctx, requestId);
-  if (r.status !== "posted") throw new DomainError("cost_not_posted");
-  if (!Number.isSafeInteger(costBaisa) || costBaisa < 0) throw new DomainError("invalid_amount", {}, "cost");
-  if (reason.trim().length < 3) throw new DomainError("reason_required", {}, "reason");
-  await db.update(maintenanceRequests).set({ costBaisa, updatedAt: new Date() }).where(eq(maintenanceRequests.id, r.id));
+  if (r.status !== "completed") throw new DomainError("invalid_transition", { machine: "maintenance", from: r.status, to: "completed" });
+  const isManager = role(ctx) === "manager";
+  if (!isManager) assertCan(role(ctx), "maintenance:work");
+  if (costBaisa !== null && (!Number.isSafeInteger(costBaisa) || costBaisa < 0)) throw new DomainError("invalid_amount", {}, "cost");
+  if (r.costBaisa !== null && !isManager) throw new DomainError("forbidden");
+  if (r.costBaisa !== null && (reason ?? "").trim().length < 3) throw new DomainError("reason_required", {}, "reason");
+  await db
+    .update(maintenanceRequests)
+    .set({ costBaisa, costLoggedAt: costBaisa === null ? null : new Date(), postedAt: costBaisa === null ? null : new Date(), updatedAt: new Date() })
+    .where(eq(maintenanceRequests.id, r.id));
   await writeAudit(db, ctx, {
-    action: "maintenance.cost_corrected",
+    action: "maintenance.cost_changed",
     entityType: "maintenance_request",
     entityId: r.id,
     before: { costBaisa: r.costBaisa },
     after: { costBaisa },
-    meta: { reason },
+    meta: { reason: reason ?? null },
     elevated: true,
   });
-  await logEvent(db, ctx, r.id, "posted", `Cost corrected: ${reason}`, true);
+  await logEvent(db, ctx, r.id, "completed", reason ? `Cost updated: ${reason}` : "Cost recorded", true);
 }
 
 export async function addInternalNote(db: DB, ctx: Ctx, requestId: string, note: string) {

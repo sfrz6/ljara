@@ -60,6 +60,8 @@ export default async function ContractDetail({ params }: { params: Promise<{ id:
                 { label: t("unit.monthly_rent"), value: <Money baisa={c.monthlyRentBaisa} locale={locale} strong /> },
                 { label: t("contract.frequency"), value: t(`freq.${c.paymentFrequency}` as never) },
                 { label: t("contract.sanad"), value: c.sanadReference },
+                { label: t("contract.electricity"), value: c.electricityAccount ? <Num>{c.electricityAccount}</Num> : null },
+                { label: t("contract.water"), value: c.waterAccount ? <Num>{c.waterAccount}</Num> : null },
                 { label: t("contract.signed_doc"), value: c.signedDocFileId ? <a className={buttonClass("secondary", "sm")} href={`/api/files/${c.signedDocFileId}`} target="_blank" rel="noreferrer"><FileText className="size-4" aria-hidden />{t("common.view")}</a> : null },
                 { label: t("common.notes"), value: c.notes },
               ]} />
@@ -76,7 +78,7 @@ export default async function ContractDetail({ params }: { params: Promise<{ id:
               </CardBody>
             </Card>
           ) : null}
-          {s.can("contracts:manage") ? <ContractActions id={c.id} status={c.status} noticeGiven={!!c.noticeGivenOn} renewed={!!c.renewedToId} depositHeld={deposit?.status === "held"} ended={c.status === "ended"} sanad={c.sanadReference ?? ""} notes={c.notes ?? ""} /> : null}
+          {s.can("contracts:manage") ? <ContractActions id={c.id} status={c.status} noticeGiven={!!c.noticeGivenOn} renewed={!!c.renewedToId} depositHeld={deposit?.status === "held"} ended={c.status === "ended"} sanad={c.sanadReference ?? ""} notes={c.notes ?? ""} electricity={c.electricityAccount ?? ""} water={c.waterAccount ?? ""} /> : null}
           {s.can("contracts:manage") && c.status === "active" && !c.renewedToId && !c.noticeGivenOn ? <ButtonLink href={`/contracts/new?renew=${c.id}`} size="lg" className="w-full">{t("contract.renew")}</ButtonLink> : null}
         </div>
 

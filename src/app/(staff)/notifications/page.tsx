@@ -12,6 +12,8 @@ import { FilterBar, Tabs } from "@/components/ui/filters";
 import { StatusBadge } from "@/components/status";
 import { QuickAction } from "@/components/ui/quick-action";
 import { runDailyAction } from "@/app/actions/admin";
+import { Alert } from "@/components/ui/form";
+import { messagingStatus } from "@/lib/features";
 
 export const metadata = { title: "Messages" };
 
@@ -41,6 +43,11 @@ export default async function NotificationsPage({ searchParams }: { searchParams
   return (
     <>
       <PageHeader title={t("nav.notifications")} description={t("notif.page_hint")} actions={s.can("settings:manage") ? <QuickAction action={runDailyAction} hidden={{}} variant="secondary" size="md">{t("notif.run_daily")}</QuickAction> : null} />
+      {canLog && messagingStatus().some((m) => m.mode !== "live") ? (
+        <Alert tone="warn" title={t("notif.not_live_title")}>
+          {t("notif.not_live_body", { channels: messagingStatus().filter((m) => m.mode !== "live").map((m) => t(`channel.${m.channel}` as never)).join(", ") })}
+        </Alert>
+      ) : null}
       {canLog ? <Tabs basePath="/notifications" active={tab} tabs={[{ value: "log", label: t("notif.delivery_log") }, { value: "mine", label: t("notif.mine") }]} param="tab" /> : null}
       {tab === "log" && canLog ? (
         <FilterBar hasActive={!!(sp.channel || sp.status)} filters={[

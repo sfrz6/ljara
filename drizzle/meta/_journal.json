@@ -5,15 +5,22 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1791752721983,
+      "when": 1792311821498,
       "tag": "0000_init",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1791752724348,
+      "when": 1792311823027,
       "tag": "0001_guarantees",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792313143262,
+      "tag": "0002_contract_utility_accounts",
       "breakpoints": true
     }
   ]

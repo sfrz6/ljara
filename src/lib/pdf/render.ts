@@ -69,3 +69,25 @@ export async function renderPdf(html: string): Promise<Buffer> {
     await browser.close();
   }
 }
+
+export type RenderedDocument = { kind: "pdf"; body: Buffer } | { kind: "html"; body: string };
+
+/**
+ * Render to PDF; if headless Chromium cannot start (memory limit, missing binary) fall back to the same document as
+ * printable HTML so the office can still use the browser's Save as PDF instead of seeing an error.
+ */
+export async function renderDocument(html: string): Promise<RenderedDocument> {
+  try {
+    return { kind: "pdf", body: await renderPdf(html) };
+  } catch (e) {
+    console.error("PDF rendering failed, serving printable HTML", e);
+    const printable = html.replace("</body>", `<script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})</script></body>`);
+    return { kind: "html", body: printable };
+  }
+}
+
+export function documentResponse(doc: RenderedDocument, filename: string): Response {
+  const headers = { "Cache-Control": "private, no-store" };
+  if (doc.kind === "html") return new Response(doc.body, { headers: { ...headers, "Content-Type": "text/html; charset=utf-8", "X-Ijara-Fallback": "html" } });
+  return new Response(new Uint8Array(doc.body), { headers: { ...headers, "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${filename}"` } });
+}

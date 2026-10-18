@@ -51,6 +51,8 @@ export const createContractAction = staffAction("contracts:manage", async ({ c, 
       securityBank: z.string().optional(),
       securityDate: z.string().optional(),
       sanadReference: z.string().optional(),
+      electricityAccount: z.string().optional(),
+      waterAccount: z.string().optional(),
       previousContractId: z.string().optional(),
       capOverrideReason: z.string().optional(),
       notes: z.string().optional(),
@@ -88,6 +90,8 @@ export const createContractAction = staffAction("contracts:manage", async ({ c, 
       security: secAmount ? { amountBaisa: secAmount, chequeNumber: v.securityNumber || null, bank: v.securityBank || null, chequeDate: v.securityDate && isValidISO(v.securityDate) ? v.securityDate : null, scanFileId: securityScan } : null,
       signedDocFileId,
       sanadReference: v.sanadReference || null,
+      electricityAccount: v.electricityAccount,
+      waterAccount: v.waterAccount,
       notes: v.notes || null,
       previousContractId: v.previousContractId || null,
     },
@@ -158,9 +162,9 @@ export const sendPaymentLinkAction = staffAction("payments:record", async ({ c, 
 });
 
 export const updateContractAction = staffAction("contracts:manage", async ({ c, form, t }) => {
-  const v = parseForm(z.object({ id: uuid, sanadReference: z.string().optional(), notes: z.string().optional() }), form, t);
+  const v = parseForm(z.object({ id: uuid, sanadReference: z.string().optional(), notes: z.string().optional(), electricityAccount: z.string().optional(), waterAccount: z.string().optional() }), form, t);
   const signedDocFileId = await upload(form, "signedDoc", c.ctx, "contract");
-  await updateContractDocs(c.db, c.ctx, v.id, { sanadReference: v.sanadReference?.trim() || null, notes: v.notes?.trim() || null, ...(signedDocFileId ? { signedDocFileId } : {}) });
+  await updateContractDocs(c.db, c.ctx, v.id, { sanadReference: v.sanadReference?.trim() || null, notes: v.notes?.trim() || null, electricityAccount: v.electricityAccount ?? null, waterAccount: v.waterAccount ?? null, ...(signedDocFileId ? { signedDocFileId } : {}) });
   return { message: "msg.saved", revalidate: [`/contracts/${v.id}`] };
 });
 

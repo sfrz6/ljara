@@ -5,7 +5,7 @@ import { statements } from "@/db/schema";
 import { can } from "@/domain/permissions";
 import type { StatementSnapshot } from "@/domain/statements";
 import { statementHtml } from "@/lib/pdf/documents";
-import { renderPdf } from "@/lib/pdf/render";
+import { documentResponse, renderDocument } from "@/lib/pdf/render";
 import { getSession } from "@/lib/session";
 import { writeAudit } from "@/domain/audit";
 
@@ -23,7 +23,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!st) return new NextResponse("Not found", { status: 404 });
   const url = new URL(req.url);
   const lang = url.searchParams.get("lang") === "en" ? "en" : url.searchParams.get("lang") === "ar" ? "ar" : st.locale;
-  const pdf = await renderPdf(statementHtml({ number: st.number, generatedAt: st.generatedAt, snapshot: st.snapshot as StatementSnapshot }, lang));
+  const doc = await renderDocument(statementHtml({ number: st.number, generatedAt: st.generatedAt, snapshot: st.snapshot as StatementSnapshot }, lang));
   if (url.searchParams.get("share")) {
     await db.update(statements).set({ lastSharedAt: new Date(), shareCount: st.shareCount + 1 }).where(eq(statements.id, st.id));
     await writeAudit(db, { orgId: st.orgId, actor: { kind: "user", id: session.user.id, name: session.user.name, role: session.user.role } }, {
@@ -33,7 +33,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       meta: { via: url.searchParams.get("share"), owner: st.ownerId, from: st.periodFrom, to: st.periodTo, manager: session.user.name },
     });
   }
-  return new NextResponse(new Uint8Array(pdf), {
-    headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${st.number}-${lang}.pdf"`, "Cache-Control": "private, no-store" },
-  });
+  return documentResponse(doc, `${st.number}-${lang}.pdf`);
 }

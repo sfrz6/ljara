@@ -1,6 +1,6 @@
 import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import type { DB } from "@/db/client";
-import { buildings, owners, receiptCounters, units } from "@/db/schema";
+import { buildings, inspections, owners, receiptCounters, units } from "@/db/schema";
 import { writeAudit, diff } from "./audit";
 import type { Ctx } from "./context";
 import { DomainError, NotFoundError } from "./errors";
@@ -233,7 +233,6 @@ export async function transitionUnit(
 
   if (to === "available" && from === "inspected") {
     // Defence in depth: the machine already forces inspected -> available, but the inspection record must say so too.
-    const { inspections } = await import("@/db/schema");
     const latest = await q
       .select()
       .from(inspections)

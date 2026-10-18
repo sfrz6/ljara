@@ -3,10 +3,13 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import * as s from "@/db/schema";
 import { DomainError } from "@/domain/errors";
 import { bounceCheque, collectCheque, depositCheque, recoverCheque, startFollowUp, writeOffCheque } from "@/domain/cheques";
-import { createContract, completeMoveOut, giveNotice } from "@/domain/contracts";
+import { createContract, completeMoveOut, giveNotice, updateContractDocs } from "@/domain/contracts";
 import { createTenant } from "@/domain/tenants";
 import { completePaymentIntent, createPaymentIntent, recordManualPayment, voidReceipt } from "@/domain/payments";
-import { assignRequest, completeRequest, decideInspection, logCost, performInspection, startWork, submitRequest, markSeen } from "@/domain/maintenance";
+import { completeRequest, decideInspection, performInspection, putOnHold, setCost, startWork, submitRequest } from "@/domain/maintenance";
+import { signupOrganisation } from "@/domain/organisation";
+import { createBuilding, createOwner, createUnit } from "@/domain/portfolio";
+import * as portal from "@/domain/portal";
 import { buildStatementData, generateStatement } from "@/domain/statements";
 import * as dash from "@/domain/dashboard";
 import { notifyTenant } from "@/domain/notifications";
@@ -260,49 +263,78 @@ describe("online payments (CR-15.1, simulated gateway)", () => {
   });
 });
 
-describe("maintenance to owner statement (CR-14.4)", () => {
-  it("a request cannot be closed without a cost, zero is allowed, and the cost reaches the statement untouched", async () => {
-    const unit = await w.unit("A-104");
-    const [tenant] = await w.db.select().from(s.tenants).where(eq(s.tenants.orgId, w.orgId)).limit(1);
-    const [tech] = await w.db.select().from(s.users).where(eq(s.users.email, "maintenance@alsahil.demo"));
+describe("maintenance flow: submitted, in progress, waiting, completed", () => {
+  async function tenantAndTech() {
+    const [tenant] = await w.db.select().from(s.tenants).where(and(eq(s.tenants.orgId, w.orgId), eq(s.tenants.idNumber, "12345678")));
     const [cat] = await w.db.select().from(s.maintenanceCategories).where(and(eq(s.maintenanceCategories.orgId, w.orgId), eq(s.maintenanceCategories.key, "plumbing")));
+    return { tenant, cat };
+  }
 
-    const req = await submitRequest(w.db, w.ctx.manager, { unitId: unit.id, tenantId: tenant.id, title: "Dripping tap in the kitchen", description: "The kitchen tap drips constantly.", priority: "normal" });
+  it("a tenant request reaches the manager and the maintenance team", async () => {
+    const { tenant } = await tenantAndTech();
+    const req = await submitRequest(w.db, { orgId: w.orgId, actor: { kind: "tenant", id: tenant.id, name: tenant.nameEn, role: "tenant" } }, { title: "Dripping tap in the kitchen", description: "The kitchen tap drips constantly.", priority: "normal" });
+    expect(req.status).toBe("submitted");
     expect(req.reference).toMatch(/^MR-\d{4}-\d{4}$/);
-    await expect(startWork(w.db, w.ctx.maintenance, req.id)).rejects.toMatchObject({ code: "not_assigned_to_you" });
-    await markSeen(w.db, w.ctx.manager, req.id);
-    await assignRequest(w.db, w.ctx.manager, req.id, tech.id);
-    await startWork(w.db, w.ctx.maintenance, req.id);
-    await completeRequest(w.db, w.ctx.maintenance, req.id, { categoryId: cat.id, workPerformed: "Replaced the cartridge" });
-
-    let [row] = await w.db.select().from(s.maintenanceRequests).where(eq(s.maintenanceRequests.id, req.id));
-    expect(row.status).toBe("completed"); // not closed: cost missing
-    const [owner] = await w.db.select().from(s.owners).where(eq(s.owners.id, unit.ownerId));
-    const before = await buildStatementData(w.db, w.orgId, owner.id, today, today);
-    expect(before.maintenanceLines.find((l) => l.reference === req.reference)).toBeUndefined();
-
-    await expect(logCost(w.db, w.ctx.maintenance, req.id, -5)).rejects.toMatchObject({ code: "invalid_amount" });
-    await logCost(w.db, w.ctx.maintenance, req.id, 0);
-    [row] = await w.db.select().from(s.maintenanceRequests).where(eq(s.maintenanceRequests.id, req.id));
-    expect(row.status).toBe("posted");
-    expect(row.costBaisa).toBe(0);
-
-    const after = await buildStatementData(w.db, w.orgId, owner.id, today, today);
-    expect(after.maintenanceLines.find((l) => l.reference === req.reference)?.costBaisa).toBe(0);
+    const alerts = await w.db.select().from(s.notifications).where(and(eq(s.notifications.template, "maintenance_new"), eq(s.notifications.relatedId, req.id)));
+    const who = new Set((await w.db.select().from(s.users).where(eq(s.users.orgId, w.orgId))).filter((u) => alerts.some((a) => a.recipientId === u.id)).map((u) => u.role));
+    expect(who.has("manager")).toBe(true);
+    expect(who.has("maintenance")).toBe(true);
   });
 
-  it("a logged cost lowers the owner's net without any second entry", async () => {
+  it("when the office has no maintenance accounts the manager still receives and can work the request", async () => {
+    const orgNoTeam = (await signupOrganisation(w.db, { orgName: "Solo Office", adminName: "Solo Manager", email: "solo@example.om", phone: "9944 5566", password: "Sturdy-Pass-2026", locale: "en" })).org;
+    const [mgr] = await w.db.select().from(s.users).where(eq(s.users.email, "solo@example.om"));
+    const ctx = { orgId: orgNoTeam.id, actor: { kind: "user" as const, id: mgr.id, name: mgr.name, role: "manager" as const } };
+    const owner = await createOwner(w.db, ctx, { nameEn: "Solo Owner", commissionBp: 500, payoutFrequency: "monthly", receiptPrefix: "SO" });
+    const b = await createBuilding(w.db, ctx, { ownerId: owner.id, nameEn: "Solo Tower" });
+    const u = await createUnit(w.db, ctx, { buildingId: b.id, label: "1", type: "apartment", rentBaisa: 200_000 });
+    const [cat] = await w.db.select().from(s.maintenanceCategories).where(eq(s.maintenanceCategories.orgId, orgNoTeam.id)).limit(1);
+    const req = await submitRequest(w.db, ctx, { unitId: u.id, title: "Door handle loose", description: "The front door handle is loose.", priority: "normal" });
+    const alerts = await w.db.select().from(s.notifications).where(and(eq(s.notifications.relatedId, req.id), eq(s.notifications.template, "maintenance_new")));
+    expect(alerts.some((a) => a.recipientId === mgr.id)).toBe(true);
+    await startWork(w.db, ctx, req.id);
+    await completeRequest(w.db, ctx, req.id, { categoryId: cat.id, workPerformed: "Tightened the handle screws" });
+    const [row] = await w.db.select().from(s.maintenanceRequests).where(eq(s.maintenanceRequests.id, req.id));
+    expect(row.status).toBe("completed");
+  });
+
+  it("start, put on hold with a note the tenant can read, resume, complete with no cost: nothing reaches the owner", async () => {
+    const { tenant, cat } = await tenantAndTech();
     const unit = await w.unit("A-101");
-    const [tenant] = await w.db.select().from(s.tenants).where(and(eq(s.tenants.orgId, w.orgId), eq(s.tenants.idNumber, "12345678")));
-    const [tech] = await w.db.select().from(s.users).where(eq(s.users.email, "maintenance@alsahil.demo"));
-    const [cat] = await w.db.select().from(s.maintenanceCategories).where(and(eq(s.maintenanceCategories.orgId, w.orgId), eq(s.maintenanceCategories.key, "ac")));
     const [owner] = await w.db.select().from(s.owners).where(eq(s.owners.id, unit.ownerId));
     const before = await buildStatementData(w.db, w.orgId, owner.id, today, today);
-    const req = await submitRequest(w.db, { orgId: w.orgId, actor: { kind: "tenant", id: tenant.id, name: tenant.nameEn, role: "tenant" } }, { title: "AC leaking water", description: "Water drips from the indoor unit.", priority: "urgent" });
+    const tenantCtx = { orgId: w.orgId, actor: { kind: "tenant" as const, id: tenant.id, name: tenant.nameEn, role: "tenant" as const } };
+    const req = await submitRequest(w.db, tenantCtx, { title: "Bathroom fan is noisy", description: "The fan rattles loudly.", priority: "normal" });
     expect(req.unitId).toBe(unit.id); // derived from the contract, not from the client
-    await assignRequest(w.db, w.ctx.manager, req.id, tech.id);
+
+    await expect(putOnHold(w.db, w.ctx.maintenance, req.id, "waiting for part")).rejects.toMatchObject({ code: "invalid_transition" }); // must start first
     await startWork(w.db, w.ctx.maintenance, req.id);
-    await completeRequest(w.db, w.ctx.maintenance, req.id, { categoryId: cat.id, workPerformed: "Cleared drain pipe and recharged", costBaisa: 45_500 });
+    await expect(putOnHold(w.db, w.ctx.maintenance, req.id, "x")).rejects.toMatchObject({ code: "note_required" });
+    await putOnHold(w.db, w.ctx.maintenance, req.id, "Waiting for a replacement fan, back on Thursday");
+    let detail = await portal.tenantRequestDetail(w.db, { orgId: w.orgId, tenantId: tenant.id }, req.id);
+    expect(detail.tenantStatus).toBe("waiting");
+    expect(detail.timeline.some((e) => e.note?.includes("replacement fan"))).toBe(true);
+    await startWork(w.db, w.ctx.maintenance, req.id);
+    await completeRequest(w.db, w.ctx.maintenance, req.id, { categoryId: cat.id, workPerformed: "Replaced the fan; tenant arranged and paid for the new unit" });
+
+    detail = await portal.tenantRequestDetail(w.db, { orgId: w.orgId, tenantId: tenant.id }, req.id);
+    expect(detail.tenantStatus).toBe("completed");
+    const [row] = await w.db.select().from(s.maintenanceRequests).where(eq(s.maintenanceRequests.id, req.id));
+    expect(row.costBaisa).toBeNull();
+    const after = await buildStatementData(w.db, w.orgId, owner.id, today, today);
+    expect(after.maintenanceLines.find((l) => l.reference === req.reference)).toBeUndefined();
+    expect(after.totals.maintenanceBaisa).toBe(before.totals.maintenanceBaisa);
+    expect(JSON.stringify(detail)).not.toMatch(/cost|technicianNotes|internal/i);
+  });
+
+  it("a cost entered by the office reaches the owner statement and the manager figures without a second entry", async () => {
+    const unit = await w.unit("A-104");
+    const [owner] = await w.db.select().from(s.owners).where(eq(s.owners.id, unit.ownerId));
+    const [cat] = await w.db.select().from(s.maintenanceCategories).where(and(eq(s.maintenanceCategories.orgId, w.orgId), eq(s.maintenanceCategories.key, "ac")));
+    const before = await buildStatementData(w.db, w.orgId, owner.id, today, today);
+    const req = await submitRequest(w.db, w.ctx.manager, { unitId: unit.id, title: "AC leaking water", description: "Water drips from the indoor unit.", priority: "urgent" });
+    await startWork(w.db, w.ctx.maintenance, req.id);
+    await completeRequest(w.db, w.ctx.maintenance, req.id, { categoryId: cat.id, workPerformed: "Cleared the drain and recharged", costBaisa: 45_500 });
     const after = await buildStatementData(w.db, w.orgId, owner.id, today, today);
     expect(after.totals.maintenanceBaisa - before.totals.maintenanceBaisa).toBe(45_500);
     expect(after.totals.netToOwnerBaisa).toBe(before.totals.netToOwnerBaisa - 45_500);
@@ -311,12 +343,30 @@ describe("maintenance to owner statement (CR-14.4)", () => {
     await expect(generateStatement(w.db, w.ctx.maintenance, { ownerId: owner.id, from: today, to: today, locale: "en" })).rejects.toMatchObject({ code: "forbidden" });
   });
 
-  it("only the assigned technician can work a request", async () => {
+  it("the team can add a missing cost later; only a manager can change it, with a reason", async () => {
+    const unit = await w.unit("A-102");
+    const [cat] = await w.db.select().from(s.maintenanceCategories).where(and(eq(s.maintenanceCategories.orgId, w.orgId), eq(s.maintenanceCategories.key, "plumbing")));
+    const req = await submitRequest(w.db, w.ctx.manager, { unitId: unit.id, title: "Shower head replaced", description: "Replace the shower head.", priority: "normal" });
+    await startWork(w.db, w.ctx.manager, req.id);
+    await completeRequest(w.db, w.ctx.manager, req.id, { categoryId: cat.id, workPerformed: "Replaced the shower head" });
+    await setCost(w.db, w.ctx.maintenance, req.id, 9_000);
+    await expect(setCost(w.db, w.ctx.maintenance, req.id, 12_000, "typo")).rejects.toMatchObject({ code: "forbidden" });
+    await expect(setCost(w.db, w.ctx.manager, req.id, 12_000)).rejects.toMatchObject({ code: "reason_required" });
+    await setCost(w.db, w.ctx.manager, req.id, 12_000, "Supplier invoice was higher");
+    const [row] = await w.db.select().from(s.maintenanceRequests).where(eq(s.maintenanceRequests.id, req.id));
+    expect(row.costBaisa).toBe(12_000);
+    const audit = await w.db.select().from(s.auditLog).where(and(eq(s.auditLog.action, "maintenance.cost_changed"), eq(s.auditLog.entityId, req.id)));
+    expect(audit.length).toBe(2);
+  });
+
+  it("any maintenance team member can work any request, but not a role without the permission", async () => {
     const unit = await w.unit("Q-201");
-    const [tech2] = await w.db.select().from(s.users).where(eq(s.users.email, "yousuf@alsahil.demo"));
     const req = await submitRequest(w.db, w.ctx.manager, { unitId: unit.id, title: "Squeaky wardrobe door", description: "The door squeaks and rubs.", priority: "normal" });
-    await assignRequest(w.db, w.ctx.manager, req.id, tech2.id);
-    await expect(startWork(w.db, w.ctx.maintenance, req.id)).rejects.toMatchObject({ code: "not_assigned_to_you" });
+    await expect(startWork(w.db, w.ctx.accounts, req.id)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(startWork(w.db, w.ctx.contracts, req.id)).rejects.toMatchObject({ code: "forbidden" });
+    const started = await startWork(w.db, w.ctx.maintenance, req.id);
+    expect(started.status).toBe("in_progress");
+    expect(started.assignedToUserId).toBe(w.ctx.maintenance.actor.id);
   });
 });
 
@@ -349,6 +399,25 @@ describe("move-out, inspection and approval (CR-14.5)", () => {
   it("unit under inspection is visible to the manager dashboard", async () => {
     const d = await dash.manager(w.db, w.orgId);
     expect(d.underInspection.length).toBeGreaterThan(0);
+  });
+});
+
+describe("utility account numbers on the contract", () => {
+  it("are saved by the office and visible to that tenant only", async () => {
+    const hamad = await w.tenantCtx("12345678");
+    const other = await w.tenantCtx("11527772");
+    const [c] = await w.db.select().from(s.contracts).where(and(eq(s.contracts.tenantId, hamad.actor.id!), eq(s.contracts.status, "active")));
+    await updateContractDocs(w.db, w.ctx.contracts, c.id, { electricityAccount: "ELEC-2345-678", waterAccount: "W 99/1204" });
+    const mine = await portal.tenantContract(w.db, { orgId: w.orgId, tenantId: hamad.actor.id! });
+    expect(mine.current?.electricityAccount).toBe("ELEC-2345-678");
+    expect(mine.current?.waterAccount).toBe("W 99/1204");
+    const theirs = await portal.tenantContract(w.db, { orgId: w.orgId, tenantId: other.actor.id! });
+    expect(JSON.stringify(theirs)).not.toContain("ELEC-2345-678");
+    await expect(updateContractDocs(w.db, w.ctx.contracts, c.id, { electricityAccount: "bad<script>" })).rejects.toMatchObject({ code: "invalid_account" });
+    await expect(updateContractDocs(w.db, w.ctx.maintenance, c.id, { waterAccount: "123" })).rejects.toMatchObject({ code: "forbidden" });
+    await updateContractDocs(w.db, w.ctx.contracts, c.id, { waterAccount: "" });
+    const cleared = await portal.tenantContract(w.db, { orgId: w.orgId, tenantId: hamad.actor.id! });
+    expect(cleared.current?.waterAccount).toBeNull();
   });
 });
 

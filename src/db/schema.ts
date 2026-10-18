@@ -65,15 +65,7 @@ export const paymentMethodEnum = pgEnum("payment_method", ["cheque", "online", "
 export const paymentStatusEnum = pgEnum("payment_status", ["posted", "voided"]);
 export const receiptKindEnum = pgEnum("receipt_kind", ["receipt", "credit_note"]);
 export const receiptStatusEnum = pgEnum("receipt_status", ["issued", "voided"]);
-export const maintenanceStatusEnum = pgEnum("maintenance_status", [
-  "submitted",
-  "seen",
-  "assigned",
-  "in_progress",
-  "completed",
-  "cost_logged",
-  "posted",
-]);
+export const maintenanceStatusEnum = pgEnum("maintenance_status", ["submitted", "in_progress", "waiting", "completed"]);
 export const priorityEnum = pgEnum("priority", ["normal", "urgent"]);
 export const inspectionStatusEnum = pgEnum("inspection_status", ["pending", "inspected", "approved", "rejected"]);
 export const channelEnum = pgEnum("channel", ["in_app", "whatsapp", "sms", "email"]);
@@ -365,6 +357,8 @@ export const contracts = pgTable(
     endedOn: date("ended_on", { mode: "string" }),
     signedDocFileId: uuid("signed_doc_file_id"),
     sanadReference: varchar("sanad_reference", { length: 80 }),
+    electricityAccount: varchar("electricity_account", { length: 40 }),
+    waterAccount: varchar("water_account", { length: 40 }),
     notes: text("notes"),
     createdBy: uuid("created_by"),
     createdAt: createdAt(),

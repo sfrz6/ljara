@@ -103,13 +103,9 @@ export async function manager(q: DB, orgId: string, today = todayISO()) {
   const maintenance = await q
     .select({ status: maintenanceRequests.status, n: sql<number>`count(*)::int`, oldest: sql<Date>`min(${maintenanceRequests.createdAt})` })
     .from(maintenanceRequests)
-    .where(and(eq(maintenanceRequests.orgId, orgId), inArray(maintenanceRequests.status, ["submitted", "seen", "assigned", "in_progress", "completed"])))
+    .where(and(eq(maintenanceRequests.orgId, orgId), inArray(maintenanceRequests.status, ["submitted", "in_progress", "waiting"])))
     .groupBy(maintenanceRequests.status);
 
-  const awaitingCost = await q
-    .select({ n: sql<number>`count(*)::int` })
-    .from(maintenanceRequests)
-    .where(and(eq(maintenanceRequests.orgId, orgId), eq(maintenanceRequests.status, "completed")));
 
   const perBuilding = await buildingCollection(q, orgId, today);
 
@@ -144,7 +140,6 @@ export async function manager(q: DB, orgId: string, today = todayISO()) {
     expiring: expiringDetail,
     expiringCount: expiring.length,
     maintenance,
-    awaitingCostCount: awaitingCost[0]?.n ?? 0,
     perBuilding,
     perOwner,
   };
@@ -236,7 +231,7 @@ export async function maintenance(q: DB, orgId: string, userId: string) {
       and(
         eq(maintenanceRequests.orgId, orgId),
         eq(maintenanceRequests.assignedToUserId, userId),
-        inArray(maintenanceRequests.status, ["assigned", "in_progress", "completed"]),
+        inArray(maintenanceRequests.status, ["in_progress", "waiting"]),
       ),
     )
     .orderBy(desc(maintenanceRequests.priority), asc(maintenanceRequests.createdAt));
@@ -245,7 +240,7 @@ export async function maintenance(q: DB, orgId: string, userId: string) {
     .from(maintenanceRequests)
     .innerJoin(units, eq(units.id, maintenanceRequests.unitId))
     .innerJoin(buildings, eq(buildings.id, maintenanceRequests.buildingId))
-    .where(and(eq(maintenanceRequests.orgId, orgId), inArray(maintenanceRequests.status, ["submitted", "seen"])))
+    .where(and(eq(maintenanceRequests.orgId, orgId), eq(maintenanceRequests.status, "submitted")))
     .orderBy(asc(maintenanceRequests.createdAt));
   const pendingInspections = await q
     .select({ i: inspections, unit: units.label, building: buildings.nameEn })
@@ -257,7 +252,7 @@ export async function maintenance(q: DB, orgId: string, userId: string) {
   const [done] = await q
     .select({ n: sql<number>`count(*)::int` })
     .from(maintenanceRequests)
-    .where(and(eq(maintenanceRequests.orgId, orgId), eq(maintenanceRequests.assignedToUserId, userId), eq(maintenanceRequests.status, "posted")));
+    .where(and(eq(maintenanceRequests.orgId, orgId), eq(maintenanceRequests.assignedToUserId, userId), eq(maintenanceRequests.status, "completed")));
   return { mine, unassigned, pendingInspections, completedCount: done.n };
 }
 

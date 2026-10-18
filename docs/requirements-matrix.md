@@ -9,7 +9,7 @@ Source of truth: `Ijara-Proposal.pdf` (text in `docs/proposal.txt`). Status: **D
 | 14.1 | Record a payment in 60 seconds, no training | Done | Cheques queue: one tap "Mark collected" on a due cheque; manual cash or transfer on the contract schedule | workflows.test |
 | 14.2 | Collected cheque produces a numbered receipt sent to the tenant | Done | `domain/cheques.ts collectCheque`, `payments.ts recordPayment`, message `receipt_issued` | workflows.test |
 | 14.3 | Bounced cheque on the manager dashboard immediately | Done | `bounceCheque` (urgent in-app alert), dashboard banner | workflows.test, e2e |
-| 14.4 | Request, cost, owner statement with no re-entry | Done | `maintenance.ts logCost` auto-posts; `statements.ts` reads posted costs | workflows.test |
+| 14.4 | Request, cost, owner statement with no re-entry | Done (flow revised, see 11.2) | `maintenance.ts logCost` auto-posts; `statements.ts` reads posted costs | workflows.test |
 | 14.5 | Move-out to inspection to approval to available | Done | `contracts.ts completeMoveOut`, `maintenance.ts performInspection / decideInspection` | workflows.test |
 | 14.6 | Statement for any range, correct totals, Arabic and English PDF | Done | `statements.ts`, `lib/pdf/documents.ts`, `/api/pdf/statement/[id]` | finance.test, workflows.test; PDFs checked visually |
 | 14.7 | Every screen in Arabic with correct RTL | Done | `src/i18n` (types enforce key parity), logical CSS, flipped icons | e2e (RTL switch), screenshot review at 320 and 390px |
@@ -40,7 +40,8 @@ Source of truth: `Ijara-Proposal.pdf` (text in `docs/proposal.txt`). Status: **D
 | 9.1 to 9.4 | Notifications, channel fallback, log, idempotency | Done | Providers simulated by design |
 | 10.1 | Manager can correct records, every correction audited | **Partial** | Owners, buildings, units, tenants, contract reference and documents, maintenance cost, receipts (void and credit note) are correctable. Contract dates and rent are corrected by cancelling an upcoming contract or recording a renewal, not by direct edit |
 | 10.2, 10.3 | Commission per owner including zero; Arabic and English | Done | |
-| 11.1 to 11.3 | Three state machines exactly as written | Done | `machines.ts`, tested exhaustively |
+| 11.1, 11.3 | Unit and cheque state machines exactly as written | Done | `machines.ts`, tested exhaustively |
+| 11.2 | Maintenance flow | **Changed by founder decision** | Proposal: seven steps, cost mandatory even if zero. Built: submitted, in progress, waiting (tenant-readable note), completed; cost optional (entered means charged to owner and reported, empty means tenant pays). Any maintenance team member or manager can work any request; assignment is optional |
 | 12.1 to 12.6 | Baisa integers, payout rule, receipts, phones, credentials, language | Done | `lib/money.ts`, `finance.ts`, `lib/phone.ts`, `lib/password.ts` |
 
 ## Modules (M-01 to M-14)

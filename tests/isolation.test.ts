@@ -147,12 +147,12 @@ describe("tenant isolation (CR-5.4, CR-14.9)", () => {
   });
 
   it("the request detail exposes neither costs nor internal notes", async () => {
-    const [done] = await w.db.select().from(s.maintenanceRequests).where(and(eq(s.maintenanceRequests.status, "posted"), eq(s.maintenanceRequests.orgId, w.orgId))).limit(1);
+    const [done] = await w.db.select().from(s.maintenanceRequests).where(and(eq(s.maintenanceRequests.status, "completed"), eq(s.maintenanceRequests.orgId, w.orgId))).limit(1);
     const [t] = await w.db.select().from(s.tenants).where(eq(s.tenants.id, done.tenantId!));
     const detail = await portal.tenantRequestDetail(w.db, { orgId: w.orgId, tenantId: t.id }, done.id);
     expect(JSON.stringify(detail)).not.toMatch(/cost|technician|internal|assigned_to|ownerId/i);
     expect(detail.tenantStatus).toBe("completed");
-    expect(detail.timeline.map((e) => e.status)).toEqual(["received", "assigned", "in_progress", "completed"]);
+    expect(detail.timeline.map((e) => e.status)).toEqual(["received", "in_progress", "completed"]);
   });
 
   it("security cheques are never part of what a tenant is shown (14.2)", async () => {

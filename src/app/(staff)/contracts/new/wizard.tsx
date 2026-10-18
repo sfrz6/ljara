@@ -18,7 +18,7 @@ interface UnitOpt { id: string; label: string; rent: string; capBp: number | nul
 interface Props {
   units: UnitOpt[];
   tenants: { id: string; label: string }[];
-  defaults: { unitId: string; tenantId: string; start: string; end: string; previousContractId: string; currentRent: string };
+  defaults: { unitId: string; tenantId: string; start: string; end: string; previousContractId: string; currentRent: string; electricityAccount: string; waterAccount: string };
   lockParties: boolean;
 }
 
@@ -114,6 +114,10 @@ export function ContractWizard({ units, tenants, defaults, lockParties }: Props)
             </Field>
           </FormGrid>
           <Field label={t("contract.sanad")} name="sanadReference" optional><Input name="sanadReference" /></Field>
+          <FormGrid>
+            <Field label={t("contract.electricity")} name="electricityAccount" hint={t("contract.utility_hint")} optional><Input name="electricityAccount" inputMode="text" dir="ltr" defaultValue={defaults.electricityAccount} /></Field>
+            <Field label={t("contract.water")} name="waterAccount" optional><Input name="waterAccount" inputMode="text" dir="ltr" defaultValue={defaults.waterAccount} /></Field>
+          </FormGrid>
           {renewal && unit?.capBp !== null ? (
             <Alert tone={renewal.exceedsCap ? "warn" : "info"} title={t("contract.cap_title", { pct: bpToPercentString(Math.max(0, renewal.increaseBp)), cap: bpToPercentString(unit?.capBp ?? 0) })}>
               {t("contract.cap_level", { level: t(`cap.level.${unit?.capLevel ?? "none"}` as never) })}

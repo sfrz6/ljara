@@ -2,6 +2,8 @@ import Link from "next/link";
 import { AuthShell } from "@/components/auth-shell";
 import { SignupForm } from "./signup-form";
 import { getLocale, getT } from "@/lib/session";
+import { signupEnabled } from "@/lib/features";
+import { Alert } from "@/components/ui/form";
 
 export const metadata = { title: "Create your office" };
 
@@ -22,7 +24,7 @@ export default async function SignupPage() {
         </p>
       }
     >
-      <SignupForm locale={locale} />
+      {signupEnabled() ? <SignupForm locale={locale} /> : <Alert tone="info" title={t("auth.signup_closed")}>{t("auth.signup_closed_hint")}</Alert>}
     </AuthShell>
   );
 }

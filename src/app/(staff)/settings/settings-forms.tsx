@@ -7,6 +7,8 @@ import { DocumentPicker } from "@/components/ui/file-input";
 import { ActionDialog } from "@/components/ui/overlays";
 import { QuickAction } from "@/components/ui/quick-action";
 import { useI18n } from "@/components/i18n-provider";
+import { ChangePasswordCard } from "@/components/password-card";
+import { changeStaffPasswordAction, resetStaffPasswordAction } from "@/app/actions/account";
 import { bpToPercentString } from "@/lib/money";
 import type { NotificationPrefs } from "@/db/schema";
 import {
@@ -155,6 +157,9 @@ export function StaffPanel({ staff, meId }: { staff: { id: string; name: string;
                   <Field label={t("settings.role")} name="role"><Select name="role" defaultValue={u.role}>{roles.map((r) => <option key={r} value={r}>{t(`role.${r}` as never)}</option>)}</Select></Field>
                 </ActionDialog>
                 <QuickAction action={setActiveAction} hidden={{ id: u.id, active: u.active ? "0" : "1" }} variant="ghost">{u.active ? t("settings.deactivate") : t("settings.reactivate")}</QuickAction>
+                <ActionDialog trigger={t("settings.reset_password")} title={t("settings.reset_password")} description={t("settings.reset_password_hint")} action={resetStaffPasswordAction} hidden={{ id: u.id }} submitLabel={t("common.save")}>
+                  <Field label={t("settings.temp_password")} name="password" hint={t("auth.password_hint")} required><Input name="password" type="password" autoComplete="new-password" /></Field>
+                </ActionDialog>
                 <QuickAction action={forceSignOutAction} hidden={{ id: u.id }} variant="ghost">{t("settings.force_signout")}</QuickAction>
               </div>
             ) : null}
@@ -193,6 +198,7 @@ export function SecurityPanel({ enabled, sessions }: { enabled: boolean; session
   const { t } = useI18n();
   return (
     <div className="space-y-5">
+    <ChangePasswordCard action={changeStaffPasswordAction} />
     <Card><CardHeader title={t("settings.security")} description={t("settings.two_factor_hint")} /><CardBody>
       <p className="mb-3 text-[14px]">{t("settings.two_factor")}: <Badge tone={enabled ? "ok" : "neutral"}>{enabled ? t("common.yes") : t("common.no")}</Badge></p>
       <QuickAction action={toggleTwoFactorAction} hidden={{ enabled: enabled ? "0" : "1" }} variant="secondary" size="md">{enabled ? t("settings.two_factor_off") : t("settings.two_factor_on")}</QuickAction>

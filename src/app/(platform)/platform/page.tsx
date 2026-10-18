@@ -10,6 +10,9 @@ import { QuickAction } from "@/components/ui/quick-action";
 import { setOrgStatusAction } from "@/app/actions/platform";
 import { signOutAction } from "@/app/actions/common";
 import { Button } from "@/components/ui/button";
+import { ActionDialog } from "@/components/ui/overlays";
+import { SignupFields } from "@/app/(auth)/signup/signup-form";
+import { createOfficeAction } from "@/app/actions/account";
 
 export const metadata = { title: "Organisations" };
 
@@ -24,7 +27,7 @@ export default async function PlatformPage() {
         <Wordmark locale={locale} />
         <div className="flex items-center gap-2"><LanguageSwitch locale={locale} /><form action={signOutAction}><Button type="submit" variant="secondary" size="sm">{t("nav.sign_out")}</Button></form></div>
       </div>
-      <PageHeader title={t("platform.title")} description={t("platform.hint")} />
+      <PageHeader title={t("platform.title")} description={t("platform.hint")} actions={<ActionDialog trigger={t("platform.new_office")} triggerVariant="primary" triggerSize="md" size="lg" title={t("platform.new_office")} description={t("platform.new_office_hint")} action={createOfficeAction} submitLabel={t("common.create")}><SignupFields locale={locale} /></ActionDialog>} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat tone="brand" label={t("platform.orgs")} value={<Num>{orgs.length}</Num>} />
         <Stat label={t("platform.users")} value={<Num>{sum((o) => o.users)}</Num>} />

@@ -54,6 +54,9 @@ export interface ContractInput {
   security?: SecurityInput | null;
   signedDocFileId?: string | null;
   sanadReference?: string | null;
+  /** Utility account numbers, shown to the tenant in the portal. */
+  electricityAccount?: string | null;
+  waterAccount?: string | null;
   notes?: string | null;
   previousContractId?: string | null;
 }
@@ -78,6 +81,14 @@ export async function evaluateRenewal(q: DB, orgId: string, unitId: string, curr
   });
   const { increaseBp, exceedsCap } = evaluateRenewalIncrease({ currentRent, proposedRent, capBp });
   return { capBp, level, increaseBp, exceedsCap };
+}
+
+/** Utility account numbers are free text (letters, digits, dashes, slashes) up to 40 characters. */
+export function cleanAccount(value: string | null | undefined): string | null {
+  const v = (value ?? "").trim();
+  if (!v) return null;
+  if (!/^[A-Za-z0-9\-/ ]{1,40}$/.test(v)) throw new DomainError("invalid_account", {}, "electricityAccount");
+  return v;
 }
 
 function validateTerms(input: ContractInput) {
@@ -175,6 +186,8 @@ export async function createContract(db: DB, ctx: Ctx, input: ContractInput, opt
         previousContractId: previous?.id ?? null,
         signedDocFileId: input.signedDocFileId ?? null,
         sanadReference: input.sanadReference ?? null,
+        electricityAccount: cleanAccount(input.electricityAccount),
+        waterAccount: cleanAccount(input.waterAccount),
         notes: input.notes ?? null,
         createdBy: ctx.actor.id,
       })
@@ -434,12 +447,17 @@ export async function updateContractDocs(
   db: DB,
   ctx: Ctx,
   contractId: string,
-  input: { signedDocFileId?: string | null; sanadReference?: string | null; notes?: string | null },
+  input: { signedDocFileId?: string | null; sanadReference?: string | null; notes?: string | null; electricityAccount?: string | null; waterAccount?: string | null },
 ) {
   assertCan(role(ctx), "contracts:manage");
   const [existing] = await db.select({ id: contracts.id }).from(contracts).where(and(eq(contracts.id, contractId), eq(contracts.orgId, ctx.orgId)));
   if (!existing) throw new NotFoundError("contract");
-  await db.update(contracts).set(input).where(eq(contracts.id, contractId));
+  const patch = {
+    ...input,
+    ...(input.electricityAccount !== undefined ? { electricityAccount: cleanAccount(input.electricityAccount) } : {}),
+    ...(input.waterAccount !== undefined ? { waterAccount: cleanAccount(input.waterAccount) } : {}),
+  };
+  await db.update(contracts).set(patch).where(eq(contracts.id, contractId));
   await writeAudit(db, ctx, { action: "contract.updated", entityType: "contract", entityId: contractId, after: input });
 }
 

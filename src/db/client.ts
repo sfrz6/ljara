@@ -22,6 +22,12 @@ export function isEmbedded(): boolean {
 }
 
 async function open(): Promise<void> {
+  if (!process.env.DATABASE_URL && (process.env.VERCEL || process.env.NODE_ENV === "production") && process.env.DEMO_MODE !== "true") {
+    throw new Error("DATABASE_URL is not set. Production needs a Postgres connection string (for example Neon).");
+  }
+  if (!process.env.DATABASE_URL && (process.env.VERCEL || process.env.NODE_ENV === "production") && process.env.DEMO_MODE !== "true") {
+    throw new Error("DATABASE_URL is not set. Production needs a Postgres connection string (for example Neon).");
+  }
   if (process.env.DATABASE_URL) {
     const { Pool } = await import("pg");
     const { drizzle } = await import("drizzle-orm/node-postgres");

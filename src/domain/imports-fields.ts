@@ -51,6 +51,8 @@ export const ENTITY_FIELDS: Record<ImportEntity, FieldDef[]> = {
     { key: "monthly_rent_omr", required: true, example: "280.000", aliases: ["rent", "monthlyrent", "amount"] },
     { key: "payment_frequency", required: false, example: "monthly", aliases: ["frequency", "payment"] },
     { key: "security_deposit_omr", required: false, example: "280.000", aliases: ["security", "deposit", "securitydeposit"] },
+    { key: "electricity_account", required: false, example: "1234567", aliases: ["electricity", "electricityno", "electricityaccountnumber"] },
+    { key: "water_account", required: false, example: "7654321", aliases: ["water", "waterno", "wateraccountnumber"] },
   ],
   cheques: [
     { key: "tenant_id_number", required: true, example: "12345678", aliases: ["tenantid", "idnumber", "id"] },

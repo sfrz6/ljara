@@ -10,6 +10,8 @@ import { pickName } from "@/i18n";
 import { Badge, Card, CardBody, CardHeader, DefinitionList, Money, Num, PageHeader } from "@/components/ui/display";
 import { StatusBadge } from "@/components/status";
 import { ActionDialog } from "@/components/ui/overlays";
+import { ManualCodeButton } from "@/components/manual-code";
+import { manualTenantCodeAction } from "@/app/actions/account";
 import { QuickAction } from "@/components/ui/quick-action";
 import { TenantFields } from "../tenant-fields";
 import { resendWelcomeAction, updateTenantAction } from "@/app/actions/portfolio";
@@ -39,6 +41,7 @@ export default async function TenantDetail({ params }: { params: Promise<{ id: s
         actions={
           <>
             {s.can("tenants:manage") && !tn.activatedAt ? <QuickAction action={resendWelcomeAction} hidden={{ id: tn.id }} variant="secondary" size="md" icon={<Send className="size-4" />}>{t("tenant.resend")}</QuickAction> : null}
+            {s.can("tenants:manage") && tn.status !== "archived" ? <ManualCodeButton action={manualTenantCodeAction} tenantId={tn.id} activated={!!tn.activatedAt} /> : null}
             {s.can("contracts:manage") && !history.some((h) => ["pending", "active"].includes(h.c.status)) && tn.status !== "archived" ? <ButtonLink href={`/contracts/new?tenant=${tn.id}`}>{t("contract.new")}</ButtonLink> : null}
             {s.can("tenants:manage") ? (
               <ActionDialog trigger={t("common.edit")} triggerSize="md" size="lg" title={t("common.edit")} action={updateTenantAction} hidden={{ id: tn.id }} submitLabel={t("common.save")}>

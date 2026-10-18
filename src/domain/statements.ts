@@ -1,4 +1,4 @@
-import { and, asc, between, eq, isNull } from "drizzle-orm";
+import { and, asc, between, eq, isNull, sql } from "drizzle-orm";
 import type { DB } from "@/db/client";
 import {
   buildings,
@@ -70,7 +70,7 @@ export interface StatementSnapshot {
 
 /**
  * Gather everything for an owner statement. Money is computed once, by computeOwnerStatement.
- * Only posted rent payments and posted maintenance costs can appear: security deposits have no payment
+ * Only posted rent payments and completed repairs paid by the office (cost entered) can appear: security deposits have no payment
  * record and therefore cannot be reached from here.
  */
 export async function buildStatementData(q: DB, orgId: string, ownerId: string, from: string, to: string): Promise<StatementSnapshot> {
@@ -142,7 +142,8 @@ export async function buildStatementData(q: DB, orgId: string, ownerId: string, 
       and(
         eq(maintenanceRequests.orgId, orgId),
         eq(maintenanceRequests.ownerId, ownerId),
-        eq(maintenanceRequests.status, "posted"),
+        eq(maintenanceRequests.status, "completed"),
+        sql`${maintenanceRequests.costBaisa} is not null`,
         between(maintenanceRequests.completedOn, from, to),
       ),
     )

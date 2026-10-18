@@ -14,10 +14,10 @@ export default async function NewContractPage({ searchParams }: { searchParams: 
   const { t, db, ctx, locale } = s;
   const [org] = await db.select().from(organisations).where(eq(organisations.id, ctx.orgId));
 
-  let renew: { id: string; unitId: string; tenantId: string; rent: number; end: string } | null = null;
+  let renew: { id: string; unitId: string; tenantId: string; rent: number; end: string; electricity: string; water: string } | null = null;
   if (sp.renew) {
     const [c] = await db.select().from(contracts).where(and(eq(contracts.id, sp.renew), eq(contracts.orgId, ctx.orgId)));
-    if (c && !c.renewedToId) renew = { id: c.id, unitId: c.unitId, tenantId: c.tenantId, rent: c.monthlyRentBaisa, end: c.endDate };
+    if (c && !c.renewedToId) renew = { id: c.id, unitId: c.unitId, tenantId: c.tenantId, rent: c.monthlyRentBaisa, end: c.endDate, electricity: c.electricityAccount ?? "", water: c.waterAccount ?? "" };
   }
 
   const unitRows = await db
@@ -42,7 +42,7 @@ export default async function NewContractPage({ searchParams }: { searchParams: 
       <ContractWizard
         units={unitOptions}
         tenants={tenantRows.map((x) => ({ id: x.id, label: `${pickName(locale, x.nameEn, x.nameAr)} · ${x.idNumber}` }))}
-        defaults={{ unitId: renew?.unitId ?? sp.unit ?? "", tenantId: renew?.tenantId ?? sp.tenant ?? "", start, end: addDays(addMonths(start, 12), -1), previousContractId: renew?.id ?? "", currentRent: renew ? baisaToDecimalString(renew.rent) : "" }}
+        defaults={{ unitId: renew?.unitId ?? sp.unit ?? "", tenantId: renew?.tenantId ?? sp.tenant ?? "", start, end: addDays(addMonths(start, 12), -1), previousContractId: renew?.id ?? "", currentRent: renew ? baisaToDecimalString(renew.rent) : "", electricityAccount: renew?.electricity ?? "", waterAccount: renew?.water ?? "" }}
         lockParties={!!renew}
       />
     </>

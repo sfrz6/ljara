@@ -326,6 +326,8 @@ async function prepareRow(
               paymentFrequency: freq!,
               cheques: [],
               security: sec ? { amountBaisa: sec } : null,
+              electricityAccount: cell(row, mapping, "electricity_account") || null,
+              waterAccount: cell(row, mapping, "water_account") || null,
               notes: "Imported",
             });
             created.push({ table: "contracts", id: c.id });

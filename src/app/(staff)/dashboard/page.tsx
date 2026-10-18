@@ -89,7 +89,7 @@ export default async function DashboardPage() {
             <Card>
               <CardHeader title={t("dash.maintenance_title")} actions={<ButtonLink href="/maintenance" size="sm" variant="quiet">{t("common.view_all")}</ButtonLink>} />
               <CardBody className="grid grid-cols-2 gap-2.5">
-                {(["submitted", "seen", "assigned", "in_progress", "completed"] as const).map((st) => {
+                {(["submitted", "in_progress", "waiting"] as const).map((st) => {
                   const row = d.maintenance.find((m) => m.status === st);
                   return <Link key={st} href={`/maintenance?status=${st}`} className="rounded-sm border border-line px-3 py-2 hover:bg-surface-2"><span className="block text-[22px] font-semibold leading-tight tabular-nums">{row?.n ?? 0}</span><span className="block text-[12px] text-ink-3">{t(`maint.status.${st}` as never)}</span></Link>;
                 })}
@@ -133,7 +133,7 @@ export default async function DashboardPage() {
           <Stat tone="brand" label={t("nav.maintenance")} value={<Num>{d.mine.length}</Num>} href="/maintenance" />
           <Stat tone="warn" label={t("maint.status.submitted")} value={<Num>{d.unassigned.length}</Num>} />
           <Stat tone="bad" label={t("nav.inspections")} value={<Num>{d.pendingInspections.length}</Num>} href="/inspections" />
-          <Stat tone="ok" label={t("maint.status.posted")} value={<Num>{d.completedCount}</Num>} />
+          <Stat tone="ok" label={t("maint.status.completed")} value={<Num>{d.completedCount}</Num>} />
         </div>
         <Card className="mt-5">
           <CardHeader title={t("nav.inspections")} actions={<ClipboardCheck className="size-4 text-ink-3" />} />

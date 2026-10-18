@@ -161,8 +161,8 @@ export function Input({ className, name, defaultValue, type = "text", ...props }
       id={f.id}
       name={name}
       type={isPassword && show ? "text" : type}
-      defaultValue={type === "file" || type === "password" ? undefined : echo}
-      key={type === "file" || type === "password" ? undefined : echo}
+      defaultValue={props.value !== undefined || type === "file" || type === "password" ? undefined : echo}
+      key={props.value !== undefined || type === "file" || type === "password" ? undefined : echo}
       aria-invalid={f.invalid || !!error || undefined}
       aria-describedby={f.describedBy}
       dir={isLtr ? "ltr" : props.dir}
@@ -195,8 +195,8 @@ export function Textarea({ className, name, defaultValue, rows = 3, ...props }: 
       id={f.id}
       name={name}
       rows={rows}
-      defaultValue={echo}
-      key={echo}
+      defaultValue={props.value !== undefined ? undefined : echo}
+      key={props.value !== undefined ? undefined : echo}
       aria-invalid={f.invalid || !!error || undefined}
       aria-describedby={f.describedBy}
       className={cn(controlClass, "h-auto min-h-20 py-2.5 leading-relaxed", className)}
@@ -213,8 +213,8 @@ export function Select({ className, name, defaultValue, children, ...props }: Co
     <select
       id={f.id}
       name={name}
-      defaultValue={echo}
-      key={echo}
+      defaultValue={props.value !== undefined ? undefined : echo}
+      key={props.value !== undefined ? undefined : echo}
       aria-invalid={f.invalid || !!error || undefined}
       aria-describedby={f.describedBy}
       className={cn(controlClass, "appearance-none bg-[length:16px] bg-[position:right_0.65rem_center] rtl:bg-[position:left_0.65rem_center] bg-no-repeat pe-8", className)}

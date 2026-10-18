@@ -1,12 +1,11 @@
 import { notFound } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { attachments, buildings, maintenanceCategories, maintenanceEvents, maintenanceRequests, tenants, units, users } from "@/db/schema";
-import { MAINTENANCE_STATES } from "@/domain/machines";
 import { requireStaff } from "@/lib/context";
 import { formatDateTime } from "@/lib/dates";
 import { pickName } from "@/i18n";
 import { Badge, Card, CardBody, CardHeader, DefinitionList, Money, Num, PageHeader } from "@/components/ui/display";
-import { Stepper } from "@/components/ui/stepper";
+import { ProgressSteps } from "@/components/ui/stepper";
 import { StatusBadge } from "@/components/status";
 import { AuditTrail } from "@/components/audit-trail";
 import { RequestActions } from "./request-actions";
@@ -33,13 +32,19 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
     db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.orgId, ctx.orgId), eq(users.role, "maintenance"), eq(users.active, true))),
     db.select().from(maintenanceCategories).where(and(eq(maintenanceCategories.orgId, ctx.orgId), eq(maintenanceCategories.active, true))),
   ]);
+  const lastHold = events.filter((x) => x.status === "waiting" && !x.internal).at(-1);
   const at = (st: string) => {
     const e = events.filter((x) => x.status === st && !x.internal).at(-1);
     return e ? formatDateTime(e.at, locale) : undefined;
   };
-  const steps = MAINTENANCE_STATES.map((st) => ({ key: st, label: t(`maint.status.${st}` as never), at: at(st) }));
+  const onHold = r.status === "waiting";
+  const current = onHold ? "in_progress" : r.status;
+  const steps = [
+    { key: "submitted", label: t("maint.status.submitted"), at: at("submitted") },
+    { key: "in_progress", label: onHold ? t("maint.status.waiting") : t("maint.status.in_progress"), at: at(onHold ? "waiting" : "in_progress") },
+    { key: "completed", label: t("maint.status.completed"), at: at("completed") },
+  ];
   const isManager = s.role === "manager";
-  const mine = r.assignedToUserId === s.user.id;
 
   return (
     <>
@@ -50,8 +55,8 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
         breadcrumbs={[{ href: "/maintenance", label: t("nav.maintenance") }, { label: r.reference }]}
         actions={r.priority === "urgent" ? <Badge tone="bad">{t("priority.urgent")}</Badge> : null}
       />
-      <Card className="mb-5"><CardBody><Stepper steps={steps} current={r.status} /></CardBody></Card>
-      {r.status === "completed" && r.costBaisa === null ? <div className="mb-5 rounded-md border border-warn-100 bg-warn-50 px-4 py-3 text-[14px] text-warn-700">{t("maint.cost_missing")}</div> : null}
+      <Card className="mb-5"><CardBody className="py-3.5"><ProgressSteps steps={steps} current={current} hold={onHold} /></CardBody></Card>
+      {onHold && lastHold ? <div className="mb-5 rounded-md border border-brass-500/40 bg-brass-50 px-4 py-3 text-[14px] text-brass-700"><span className="font-semibold">{t("maint.on_hold")}</span> {lastHold.note}</div> : null}
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
@@ -84,8 +89,8 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
             id={r.id}
             status={r.status}
             isManager={isManager}
-            canWork={isManager || (s.role === "maintenance" && mine)}
-            canCorrect={s.can("maintenance:costs")}
+            canWork={isManager || s.role === "maintenance"}
+            hasCost={r.costBaisa !== null}
             technicians={techs}
             categories={cats.map((c) => ({ id: c.id, label: pickName(locale, c.nameEn, c.nameAr) }))}
             defaultCategory={r.categoryId ?? ""}

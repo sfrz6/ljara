@@ -4,7 +4,6 @@ import { AuthShell } from "@/components/auth-shell";
 import { LoginForm } from "./login-form";
 import { getStaff } from "@/lib/context";
 import { getLocale, getSession, getT } from "@/lib/session";
-import { DEMO_ACCOUNTS, DEMO_OTP, DEMO_PASSWORD, isDemoMode } from "@/lib/demo";
 
 export const metadata = { title: "Sign in" };
 
@@ -15,7 +14,7 @@ export default async function LoginPage() {
   if (session?.kind === "tenant") redirect("/portal");
   const t = await getT();
   const locale = await getLocale();
-  const demo = isDemoMode() ? DEMO_ACCOUNTS.filter((a) => a.kind === "staff").map((a) => ({ key: a.key, email: a.identifier, role: a.roleKey, name: a.name })) : [];
+  const demo: { key: string; email: string; role: string; name: string }[] = [];
   return (
     <AuthShell
       locale={locale}
@@ -37,7 +36,7 @@ export default async function LoginPage() {
         </div>
       }
     >
-      <LoginForm demo={demo} demoHint={isDemoMode() ? t("auth.demo_hint", { password: DEMO_PASSWORD, otp: DEMO_OTP }) : null} />
+      <LoginForm demo={demo} demoHint={null} />
     </AuthShell>
   );
 }

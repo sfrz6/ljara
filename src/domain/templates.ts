@@ -120,6 +120,17 @@ export const TEMPLATES: TemplateDef[] = [
     vars: ["reference", "title"],
   },
   {
+    key: "maintenance_waiting",
+    audience: "tenant",
+    urgent: false,
+    subject: { en: "Maintenance on hold", ar: "الصيانة قيد الانتظار" },
+    body: {
+      en: "Update on request {reference}: {title}. {note}",
+      ar: "تحديث على الطلب {reference}: {title}. {note}",
+    },
+    vars: ["reference", "title", "note"],
+  },
+  {
     key: "maintenance_completed",
     audience: "tenant",
     urgent: false,

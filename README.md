@@ -118,6 +118,19 @@ Migrations live in `drizzle/`. `0000_init.sql` is generated from `src/db/schema.
 
 Notes: uploaded files are stored in Postgres so nothing depends on the local file system. PDFs use `@sparticuz/chromium` on Vercel; `next.config.ts` includes the fonts and the browser binary in the PDF routes. Set the function region close to your Neon region.
 
+## Going live with the first office
+
+Do this on a fresh Neon database. Never run the demo seed against it (`npm run db:seed` refuses unless `DEMO_MODE=true`).
+
+1. In Vercel set `DATABASE_URL` (Neon pooled string), `AUTH_SECRET`, `CRON_SECRET`, `NEXT_PUBLIC_APP_URL`, `DEMO_MODE=false`, `NEXT_PUBLIC_DEMO_MODE=false`. The build applies migrations automatically. If `DATABASE_URL` is missing in production the app refuses to start instead of silently using a throwaway database.
+2. Create the platform administrator once, from your computer, with the same `DATABASE_URL` in `.env.local`:
+   `npm run admin:create -- --email you@example.com --name "Your Name" --password "a long passphrase"`
+3. Sign in at `/login`, open the platform page and press Create office. Enter the office name, the first manager and a starting password, and share it with them securely. The manager then adds staff under Settings > Staff and changes their own password under Settings > My account.
+4. Public sign-up stays closed. Set `SIGNUP_ENABLED=true` only if you want anyone to be able to create an office.
+5. Tenants: SMS and WhatsApp are not connected in this build, so messages on those channels are recorded but not delivered, and the Messages page says so. Open a tenant and press Give activation code (or Give reset code): a one-time code, valid 24 hours, is shown once so you can read it to the tenant by phone. Email is real once `RESEND_API_KEY` and `EMAIL_FROM` are set.
+6. Online card payments stay hidden from tenants until `PAYMENT_GATEWAY` names a real integration. Cheque and cash receipts work normally.
+7. Monitor `/api/health` (returns 200 when the database answers). The daily cron also cleans expired sessions and codes.
+
 ## Simulated integrations
 
 All outgoing messages go through `src/domain/notifications.ts` and the provider interface in `src/integrations/providers.ts`. Each message gets one delivery record with channel, status, recipient, attempt trail and idempotency key, visible in **Messages**. The tenant also gets an in-app copy.
@@ -173,7 +186,7 @@ The Vitest suites cover money conversion, owner payout and gateway-fee modes, ma
 - **Security cheques** are a separate table with no rent schedule item, payment or receipt. They cannot reach collected rent, the dashboard figure or owner payout, structurally.
 - **Receipts** are numbered per owner from a counter row locked inside the issuing transaction: no gaps, no duplicates, rollback safe. Issued receipts are immutable (database trigger). Correction is void plus a credit note with the next number in the same series.
 - **Unit lifecycle**: available, reserved, occupied, notice given, vacated, under inspection, inspected, approved by the manager, available. Only maintenance records the inspection; only the manager approves.
-- **Maintenance**: submitted, seen, assigned, in progress, completed, cost logged, posted to the owner report. A request cannot close until a cost is recorded (zero allowed); the cost reaches owner statements automatically.
+- **Maintenance** (changed from the proposal at the founder's request): submitted, in progress, waiting, completed. The maintenance team and managers are both notified when a tenant reports an issue; if there is no maintenance account yet, managers receive it and can do the work. Putting a request on hold requires a note the tenant can read. Cost is optional: enter it when the office paid for the repair (it is charged to the owner and flows into the manager's figures and the owner statement); leave it empty when the tenant is responsible and nothing is charged.
 - **Cheques**: received, due, deposited, collected or bounced, follow-up, collected or written off. A bounced cheque raises an urgent alert and heads the manager dashboard.
 - **Rent increase cap** is resolved unit, then owner, then office. Above the cap the renewal is warned and needs a manager reason, audited.
 - **Tenants** see Upcoming, Due, Paid or Action needed only. A bounced cheque is shown as Action needed. Never costs, owner data, internal notes or the security cheque.
