@@ -113,3 +113,32 @@ describe("platform and housekeeping", () => {
 });
 
 void hashPassword;
+
+describe("tenant login created by the office", () => {
+  const mk = (idNumber: string, phone: string) => ({ nameEn: "Test Tenant", phone, idNumber, locale: "en" as const, consent: true });
+
+  it("creates a working login, turns it off, and deletes a tenant with no history", async () => {
+    const { createTenant, deleteTenant, disableTenantLogin, issueTenantLogin } = await import("@/domain/tenants");
+    const { tenantLogin } = await import("@/domain/auth");
+    const t = await createTenant(w.db, w.ctx.manager, mk("55550001", "+96895550001"));
+    await expect(issueTenantLogin(w.db, w.ctx.accounts, t.id)).rejects.toBeTruthy();
+    await expect(issueTenantLogin(w.db, w.ctxB, t.id)).rejects.toMatchObject({ code: "not_found" });
+    const first = await issueTenantLogin(w.db, w.ctx.manager, t.id);
+    expect(first.password.length).toBe(12);
+    await expect(tenantLogin(w.db, { idNumber: "55550001", password: first.password })).resolves.toBeTruthy();
+    const second = await issueTenantLogin(w.db, w.ctx.manager, t.id);
+    await expect(tenantLogin(w.db, { idNumber: "55550001", password: first.password })).rejects.toBeTruthy();
+    await expect(tenantLogin(w.db, { idNumber: "55550001", password: second.password })).resolves.toBeTruthy();
+    await disableTenantLogin(w.db, w.ctx.manager, t.id);
+    await expect(tenantLogin(w.db, { idNumber: "55550001", password: second.password })).rejects.toBeTruthy();
+    await deleteTenant(w.db, w.ctx.manager, t.id);
+    expect(await w.db.select().from(s.tenants).where(eq(s.tenants.id, t.id))).toHaveLength(0);
+  });
+
+  it("refuses to delete a tenant who has a contract", async () => {
+    const { deleteTenant } = await import("@/domain/tenants");
+    const [c] = await w.db.select({ tenantId: s.contracts.tenantId }).from(s.contracts).where(eq(s.contracts.orgId, w.orgId)).limit(1);
+    await expect(deleteTenant(w.db, w.ctx.manager, c.tenantId)).rejects.toMatchObject({ code: "tenant_has_records" });
+    expect(await w.db.select().from(s.tenants).where(eq(s.tenants.id, c.tenantId))).toHaveLength(1);
+  });
+});

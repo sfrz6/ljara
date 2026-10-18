@@ -48,14 +48,26 @@ function CodeStepFields({ mode }: { mode: "activate" | "reset" }) {
   );
 }
 
-export function OtpFlow({ mode }: { mode: "activate" | "reset" }) {
+export function OtpFlow({ mode, smsLive }: { mode: "activate" | "reset"; smsLive: boolean }) {
   const { t } = useI18n();
   const purpose = mode === "activate" ? "tenant_activation" : "tenant_reset";
   const [idNumber, setIdNumber] = useState("");
   const [sent, setSent] = useState(false);
   return (
     <div className="space-y-4">
-      {!sent ? (
+      {!sent && !smsLive ? (
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (idNumber.trim().length >= 3) setSent(true);
+          }}
+        >
+          <Field label={t("auth.id_number")} name="idNumber" required><Input name="idNumber" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} autoComplete="username" /></Field>
+          <p className="text-[13px] text-ink-3">{t("portal.office_code_hint")}</p>
+          <Button type="submit" size="lg" className="w-full">{t("common.continue")}</Button>
+        </form>
+      ) : !sent ? (
         <ActionForm action={requestOtpAction} onSuccess={() => setSent(true)} silent>
           <input type="hidden" name="purpose" value={purpose} />
           <Field label={t("auth.id_number")} name="idNumber" required><Input name="idNumber" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} autoComplete="username" /></Field>
@@ -64,13 +76,13 @@ export function OtpFlow({ mode }: { mode: "activate" | "reset" }) {
         </ActionForm>
       ) : (
         <>
-          <Alert tone="ok"><span className="flex items-center gap-2"><ShieldCheck className="size-4" aria-hidden />{t("portal.code_sent")}</span></Alert>
+          <Alert tone="ok"><span className="flex items-center gap-2"><ShieldCheck className="size-4" aria-hidden />{smsLive ? t("portal.code_sent") : t("portal.enter_office_code")}</span></Alert>
           <ActionForm action={mode === "activate" ? activateAction : resetPasswordAction}>
             <input type="hidden" name="idNumber" value={idNumber} />
             <CodeStepFields mode={mode} />
             <SubmitButton size="lg" className="w-full">{mode === "activate" ? t("portal.activate") : t("portal.reset")}</SubmitButton>
           </ActionForm>
-          <Resend idNumber={idNumber} purpose={purpose} />
+          {smsLive ? <Resend idNumber={idNumber} purpose={purpose} /> : null}
           <Button variant="ghost" size="sm" className="w-full" onClick={() => setSent(false)}>{t("portal.change_id")}</Button>
         </>
       )}

@@ -11,7 +11,8 @@ import { Badge, Card, CardBody, CardHeader, DefinitionList, Money, Num, PageHead
 import { StatusBadge } from "@/components/status";
 import { ActionDialog } from "@/components/ui/overlays";
 import { ManualCodeButton } from "@/components/manual-code";
-import { manualTenantCodeAction } from "@/app/actions/account";
+import { deleteTenantAction, disableTenantLoginAction, issueTenantLoginAction, manualTenantCodeAction } from "@/app/actions/account";
+import { TenantLoginButton } from "@/components/tenant-login";
 import { QuickAction } from "@/components/ui/quick-action";
 import { TenantFields } from "../tenant-fields";
 import { resendWelcomeAction, updateTenantAction } from "@/app/actions/portfolio";
@@ -41,6 +42,8 @@ export default async function TenantDetail({ params }: { params: Promise<{ id: s
         actions={
           <>
             {s.can("tenants:manage") && !tn.activatedAt ? <QuickAction action={resendWelcomeAction} hidden={{ id: tn.id }} variant="secondary" size="md" icon={<Send className="size-4" />}>{t("tenant.resend")}</QuickAction> : null}
+            {s.can("tenants:manage") && tn.status !== "archived" ? <TenantLoginButton action={issueTenantLoginAction} tenantId={tn.id} hasLogin={!!tn.activatedAt} phone={tn.phone} /> : null}
+            {s.can("tenants:manage") && tn.activatedAt ? <ActionDialog trigger={t("tenant.login_disable")} title={t("tenant.login_disable")} description={t("tenant.login_disable_hint")} action={disableTenantLoginAction} hidden={{ id: tn.id }} submitVariant="danger" submitLabel={t("tenant.login_disable")} /> : null}
             {s.can("tenants:manage") && tn.status !== "archived" ? <ManualCodeButton action={manualTenantCodeAction} tenantId={tn.id} activated={!!tn.activatedAt} /> : null}
             {s.can("contracts:manage") && !history.some((h) => ["pending", "active"].includes(h.c.status)) && tn.status !== "archived" ? <ButtonLink href={`/contracts/new?tenant=${tn.id}`}>{t("contract.new")}</ButtonLink> : null}
             {s.can("tenants:manage") ? (
@@ -48,6 +51,7 @@ export default async function TenantDetail({ params }: { params: Promise<{ id: s
                 <TenantFields d={tn} edit />
               </ActionDialog>
             ) : null}
+            {s.can("tenants:manage") ? <ActionDialog trigger={t("tenant.delete")} title={t("tenant.delete")} description={t("tenant.delete_hint")} action={deleteTenantAction} hidden={{ id: tn.id }} submitVariant="danger" submitLabel={t("tenant.delete")} warning={t("tenant.delete_warn")} /> : null}
           </>
         }
       />

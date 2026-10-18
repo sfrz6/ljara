@@ -5,7 +5,8 @@ import { changePassword, issueManualTenantCode, resolveSession } from "@/domain/
 import { resetStaffPasswordByManager } from "@/domain/organisation";
 import { createOfficeByPlatform } from "@/domain/platform";
 import { parseForm, staffAction, tenantAction } from "@/lib/action";
-import { getSessionToken } from "@/lib/session";
+import { getBaseUrl, getSessionToken } from "@/lib/session";
+import { deleteTenant, disableTenantLogin, issueTenantLogin } from "@/domain/tenants";
 
 const uuid = z.string().uuid("err.not_found");
 const pwForm = z.object({ current: z.string().min(1, "err.required"), next: z.string().min(1, "err.password_too_short") });
@@ -56,4 +57,23 @@ export const createOfficeAction = staffAction("platform:manage", async ({ c, for
   );
   await createOfficeByPlatform(c.db, { id: c.user.id, name: c.user.name }, v);
   return { message: "msg.office_created", revalidate: ["/platform"] };
+});
+
+export const issueTenantLoginAction = staffAction("tenants:manage", async ({ c, form, t }) => {
+  const { id } = parseForm(z.object({ id: uuid }), form, t);
+  const res = await issueTenantLogin(c.db, c.ctx, id);
+  const url = `${await getBaseUrl()}/portal/login`;
+  return { data: { idNumber: res.idNumber, password: res.password, url, name: res.name }, revalidate: [`/tenants/${id}`] };
+});
+
+export const disableTenantLoginAction = staffAction("tenants:manage", async ({ c, form, t }) => {
+  const { id } = parseForm(z.object({ id: uuid }), form, t);
+  await disableTenantLogin(c.db, c.ctx, id);
+  return { message: "msg.tenant_login_disabled", revalidate: [`/tenants/${id}`] };
+});
+
+export const deleteTenantAction = staffAction("tenants:manage", async ({ c, form, t }) => {
+  const { id } = parseForm(z.object({ id: uuid }), form, t);
+  await deleteTenant(c.db, c.ctx, id);
+  return { message: "msg.tenant_deleted", redirectTo: "/tenants" };
 });

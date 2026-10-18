@@ -1,6 +1,8 @@
-import { and, eq, ne, or } from "drizzle-orm";
+import { randomInt } from "node:crypto";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import type { DB } from "@/db/client";
-import { organisations, tenants } from "@/db/schema";
+import { notifications, organisations, otps, sessions, tenants } from "@/db/schema";
+import { hashPassword, validatePasswordStrength } from "@/lib/password";
 import { addMonths, todayISO } from "@/lib/dates";
 import { normalisePhone } from "@/lib/phone";
 import { diff, writeAudit } from "./audit";
@@ -125,4 +127,66 @@ export async function archiveTenant(q: DB, ctx: Ctx, tenantId: string) {
   if (!t) throw new NotFoundError("tenant");
   await q.update(tenants).set({ status: "archived" }).where(and(eq(tenants.id, tenantId), eq(tenants.orgId, ctx.orgId)));
   await writeAudit(q, ctx, { action: "tenant.archived", entityType: "tenant", entityId: tenantId });
+}
+
+const PASSWORD_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+
+function generatePassword(): string {
+  for (;;) {
+    let p = "";
+    for (let i = 0; i < 12; i++) p += PASSWORD_ALPHABET[randomInt(PASSWORD_ALPHABET.length)];
+    if (!validatePasswordStrength(p)) return p;
+  }
+}
+
+async function revokeTenantSessions(q: DB, tenantId: string) {
+  await q.update(sessions).set({ revokedAt: new Date() }).where(and(eq(sessions.tenantId, tenantId), isNull(sessions.revokedAt)));
+}
+
+/**
+ * Create the tenant's portal login right away: the office sends the ID number and this password to the tenant.
+ * Replaces any earlier password and signs the tenant out everywhere. The password is returned once, never stored.
+ */
+export async function issueTenantLogin(q: DB, ctx: Ctx, tenantId: string) {
+  assertCan(role(ctx), "tenants:manage");
+  const [t] = await q.select().from(tenants).where(and(eq(tenants.id, tenantId), eq(tenants.orgId, ctx.orgId)));
+  if (!t || t.status === "archived") throw new NotFoundError("tenant");
+  const password = generatePassword();
+  await q.update(tenants).set({ passwordHash: await hashPassword(password), activatedAt: t.activatedAt ?? new Date() }).where(eq(tenants.id, t.id));
+  await revokeTenantSessions(q, t.id);
+  await writeAudit(q, ctx, { action: "tenant.login_issued", entityType: "tenant", entityId: t.id, elevated: true });
+  return { idNumber: t.idNumber, password, name: t.nameEn, locale: t.locale };
+}
+
+/** Switch the tenant's portal login off. Records stay; a new login can be issued later. */
+export async function disableTenantLogin(q: DB, ctx: Ctx, tenantId: string) {
+  assertCan(role(ctx), "tenants:manage");
+  const [t] = await q.select({ id: tenants.id }).from(tenants).where(and(eq(tenants.id, tenantId), eq(tenants.orgId, ctx.orgId)));
+  if (!t) throw new NotFoundError("tenant");
+  await q.update(tenants).set({ passwordHash: null, activatedAt: null }).where(eq(tenants.id, t.id));
+  await revokeTenantSessions(q, t.id);
+  await writeAudit(q, ctx, { action: "tenant.login_disabled", entityType: "tenant", entityId: t.id, elevated: true });
+}
+
+/**
+ * Delete a tenant completely. Only possible when nothing financial or contractual refers to them (a tenant added by
+ * mistake). Receipts and contracts are legal records, so anyone with history must be archived instead.
+ */
+export async function deleteTenant(q: DB, ctx: Ctx, tenantId: string) {
+  assertCan(role(ctx), "tenants:manage");
+  const [t] = await q.select().from(tenants).where(and(eq(tenants.id, tenantId), eq(tenants.orgId, ctx.orgId)));
+  if (!t) throw new NotFoundError("tenant");
+  try {
+    await q.transaction(async (tx) => {
+      await tx.delete(sessions).where(eq(sessions.tenantId, t.id));
+      await tx.delete(otps).where(eq(otps.subjectId, t.id));
+      await tx.delete(notifications).where(and(eq(notifications.recipientKind, "tenant"), eq(notifications.recipientId, t.id)));
+      await tx.delete(tenants).where(eq(tenants.id, t.id));
+    });
+  } catch (e) {
+    const code = (e as { code?: string; cause?: { code?: string } }).code ?? (e as { cause?: { code?: string } }).cause?.code;
+    if (code === "23503") throw new DomainError("tenant_has_records");
+    throw e;
+  }
+  await writeAudit(q, ctx, { action: "tenant.deleted", entityType: "tenant", entityId: t.id, before: { nameEn: t.nameEn, idNumber: t.idNumber }, elevated: true });
 }
